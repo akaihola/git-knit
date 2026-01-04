@@ -190,13 +190,27 @@ class GitSpiceDetector:
 
     def detect(self) -> Literal["git-spice", "ghostscript", "not-found", "unknown"]:
         """Detect gs binary type."""
-        result = self.run([self.git, "stack", "restack"], capture=True, check=False)
-        if result and result.returncode == 0:
+        try:
+            # git-spice uses 'gs' as its binary name.
+            # We check --help output to distinguish from GhostScript.
+            result = subprocess.run(
+                ["gs", "--help"], capture_output=True, text=True, check=False
+            )
+            if "git-spice" in result.stdout.lower():
+                return "git-spice"
+            if "ghostscript" in result.stdout.lower():
+                return "ghostscript"
+            return "unknown"
+        except FileNotFoundError:
+            return "not-found"
+
+    def restack_if_available(self) -> bool:
+        if self.detect() == "git-spice":
+            subprocess.run(["gs", "stack", "restack"], check=True)
             return True
         return False
 
-        subprocess.run(["gs", "stack", "restack"], check=True)
-        return True
+        return False
 
 
 class KnitConfigManager:
