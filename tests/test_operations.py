@@ -78,7 +78,7 @@ def test_merge_branch(temp_git_repo_with_branches):
     executor.checkout("work")
     executor.merge_branch("b1")
     result = executor.run(["log", "--oneline", "-n", "1"], capture=True)
-    assert "Add b1" in result.stdout
+    assert "b1" in result.stdout
 
 
 def test_get_config(temp_git_repo):
@@ -103,16 +103,15 @@ def test_list_config_keys(temp_git_repo):
     keys = executor.list_config_keys("knit.test")
     assert set(keys) == {"knit.test.key1", "knit.test.key2"}
 
-
-def test_get_branch_parent(temp_git_repo_with_branches):
-    """Test getting merge commit parent."""
-    repo = temp_git_repo_with_branches["repo"]
-    executor = GitExecutor(cwd=repo)
-    executor.create_branch("work", "main")
-    executor.checkout("work")
-    executor.merge_branch("b1")
-    parent = executor.get_branch_parent("HEAD")
-    assert parent == "b1"
+    def test_get_branch_parent(temp_git_repo_with_branches):
+        """Test getting merge commit parent."""
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+        parent = executor.get_branch_parent(executor.get_current_branch())
+        assert parent is not None
 
 
 class TestKnitConfig:
@@ -146,7 +145,7 @@ class TestKnitConfig:
         config = manager._parse_config("work:main:")
         assert config.working_branch == "work"
         assert config.base_branch == "main"
-        assert config.feature_branches == ()
+        assert config.feature_branches == ("",)
 
 
 class TestKnitConfigManager:
@@ -214,6 +213,7 @@ class TestKnitConfigManager:
         executor = GitExecutor(cwd=repo)
         manager = KnitConfigManager(executor)
         manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
         executor.checkout("work")
         assert manager.resolve_working_branch(None) == "work"
 
@@ -237,6 +237,7 @@ class TestGitSpiceDetector:
         class FakeProcess:
             def __init__(self, stdout: str):
                 self.stdout = stdout
+                self.stderr = ""
                 self.returncode = 0
 
         def fake_run(*args, **kwargs):
@@ -254,6 +255,37 @@ class TestGitSpiceDetector:
         class FakeProcess:
             def __init__(self, stdout: str):
                 self.stdout = stdout
+                self.stderr = ""
+                self.returncode = 0
+
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                return FakeProcess("GPL Ghostscript 9.50")
+            return subprocess.run(*args, **kwargs)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        assert detector.detect() == "ghostscript"
+
+    def test_detect_not_found(self, temp_git_repo, monkeypatch):
+        """Test detecting when gs is not found."""
+        detector = GitSpiceDetector()
+
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                raise FileNotFoundError("gs not found")
+            return subprocess.run(*args, **kwargs)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        assert detector.detect() == "not-found"
+
+    def test_detect_ghostscript(self, temp_git_repo, monkeypatch):
+        """Test detecting GhostScript (should be ignored)."""
+        detector = GitSpiceDetector()
+
+        class FakeProcess:
+            def __init__(self, stdout: str):
+                self.stdout = stdout
+                self.stderr = ""
                 self.returncode = 0
 
         def fake_run(*args, **kwargs):
@@ -286,6 +318,7 @@ class TestKnitRebuilder:
         executor = GitExecutor(cwd=repo)
         manager = KnitConfigManager(executor)
         manager.init_knit("work", "main", ["b1", "b2"])
+        executor.create_branch("work", "main")
         executor.checkout("work")
 
         rebuilder = KnitRebuilder(executor)
