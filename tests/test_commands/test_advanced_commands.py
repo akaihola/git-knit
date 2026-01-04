@@ -102,7 +102,6 @@ class TestRestackCommand:
 
     def test_restack_with_git_spice(self, temp_knit_repo, runner, monkeypatch):
         """Test restack when git-spice is available."""
-        monkeypatch.setenv("PATH", "/fake/bin:/fake/usr/bin")
 
         class FakeProcess:
             stdout = "git-spice"
@@ -111,18 +110,18 @@ class TestRestackCommand:
 
         original_run = subprocess.run
 
-        def fake_run(*args, **kwargs):
-            if args[0] == ["gs", "--help"]:
+        def fake_run(cmd, *args, **kwargs):
+            if cmd == ["gs", "--help"]:
                 return FakeProcess()
-            if args[0] == ["gs", "stack", "restack"]:
+            if cmd == ["gs", "stack", "restack"]:
                 return FakeProcess()
-            return original_run(*args, **kwargs)
+            return original_run(cmd, *args, **kwargs)
 
         monkeypatch.setattr("subprocess.run", fake_run)
         monkeypatch.chdir(temp_knit_repo)
         result = runner.invoke(cli, ["restack", "--working-branch", "work"])
         assert result.exit_code == 0
-        assert "Restacked" in result.output
+        assert "restacked" in result.output.lower()
 
     def test_restack_not_available(self, temp_knit_repo, runner, monkeypatch):
         """Test restack when git-spice is not available."""

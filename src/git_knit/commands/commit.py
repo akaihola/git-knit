@@ -111,4 +111,6 @@ def restack(working_branch: str) -> None:
     if detector.restack_if_available():
         click.echo("Feature branches restacked using git-spice")
     else:
-        click.echo("git-spice not available, manual restacking required")
+        raise click.ClickException(
+            "git-spice not available, manual restacking required"
+        )
