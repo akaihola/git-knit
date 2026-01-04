@@ -15,7 +15,7 @@
 
 ## Overview
 
-`git knit` enables a development workflow where multiple feature branches are merged into a single working branch, allowing you to work on all changes simultaneously. Commits made in the working branch can then be routed back to their originating feature branches, with automatic reconstruction of the merged view.
+`git knit` enables a development workflow where multiple feature branches are merged into working branches, allowing you to work on all changes simultaneously. You can have multiple working branches, each merging different sets of feature branches. Commits made in a working branch can then be routed back to their originating feature branches, with automatic reconstruction of the merged view.
 
 ---
 
@@ -59,11 +59,32 @@ w = main + merge(b1) + merge(b2) + merge(b3)
    - Rebuilds `w` by resetting to base and re-merging all branches
 4. User continues working on `w` with all changes visible
 
+### Multiple Working Branches
+
+You can have multiple working branches, each with their own set of feature branches:
+
+```
+develop (base)
+  ├─ feature-a (feature branch)
+  └─ feature-b (feature branch)
+
+w1 = develop + merge(feature-a) + merge(feature-b)
+w2 = develop + merge(feature-a)
+```
+
+This allows you to maintain different working contexts, such as:
+
+- A full-stacked knit with all feature branches merged
+- A partial knit with only specific features
+- Separate knits for different base branches (e.g., `main` vs `develop`)
+
 ### Key Principles
 
-- **Single Working Branch**: Only the working branch (`w`) is checked out during normal development
+- **Multiple Working Branches**: Support for multiple working branches per repository
+- **Context Inference**: When a working branch is checked out, commands automatically target that knit
+- **Explicit Target**: Commands can target a specific working branch via `--working-branch` flag
 - **Commit Routing**: Each commit is explicitly routed to a target branch in the knit
-- **Automatic Reconstruction**: The merged view (`w`) is automatically rebuilt after each routed commit
+- **Automatic Reconstruction**: The merged view is automatically rebuilt after each routed commit
 - **Conflict Reuse**: Leverages [`git rerere`](https://git-scm.com/book/en/v2/Git-Tools-Rerere) to remember and replay conflict resolutions
 - **Optional git-spice**: Supports `git-spice restack` if available, gracefully degrades if not
 
@@ -73,38 +94,44 @@ w = main + merge(b1) + merge(b2) + merge(b3)
 
 ### Git Config Section
 
-All metadata is stored in the [local Git configuration] under the `knit` section:
+All metadata is stored in the [local Git configuration] under the `knit` section, with each working branch namespaced separately:
 
 ```ini
-[knit]
-    workingBranch = w
+[knit "w"]
     baseBranch = main
     branches = b1:b2:b3
+
+[knit "work"]
+    baseBranch = develop
+    branches = feature-a:feature-b
 ```
 
 ### Config Keys
 
-| Key                  | Description                                     | Example    |
-| -------------------- | ----------------------------------------------- | ---------- |
-| `knit.workingBranch` | Name of the merged working branch               | `w`        |
-| `knit.baseBranch`    | Base branch all feature branches originate from | `main`     |
-| `knit.branches`      | Colon-separated list of feature branches        | `b1:b2:b3` |
+| Key                                | Description                                            | Example           |
+| ---------------------------------- | ------------------------------------------------------ | ----------------- |
+| `knit.<working-branch>.baseBranch` | Base branch for this working branch                    | `main`, `develop` |
+| `knit.<working-branch>.branches`   | Colon-separated list of feature branches for this knit | `b1:b2:b3`        |
 
 ### Configuration Commands
 
 ```bash
-# Read metadata
-git config --local --get knit.workingBranch
-git config --local --get knit.baseBranch
-git config --local --get knit.branches
+# Read all working branches
+git config --local --get-regexp '^knit\..*\.baseBranch'
+
+# Read metadata for a specific working branch
+git config --local --get knit.w.baseBranch
+git config --local --get knit.w.branches
 
 # Write metadata
-git config --local knit.workingBranch "w"
-git config --local knit.baseBranch "main"
-git config --local knit.branches "b1:b2:b3"
+git config --local knit.w.baseBranch "main"
+git config --local knit.w.branches "b1:b2:b3"
 
-# Check if knit is initialized
-git config --local --get-all knit.workingBranch >/dev/null
+# Delete a working branch's metadata
+git config --local --remove-section knit.w
+
+# Check if knit is initialized (any working branches exist)
+git config --local --get-regexp '^knit\..*\.baseBranch' >/dev/null
 ```
 
 ### Rationale for Git Config
@@ -113,6 +140,7 @@ git config --local --get-all knit.workingBranch >/dev/null
 - **Persistent**: Travels with the repository (in `.git/config`)
 - **Script-friendly**: Easy to read/write from shell
 - **Namespace-safe**: Uses `knit.` prefix to avoid conflicts
+- **Multi-knit support**: Subsections allow multiple independent knits
 - **No working directory pollution**: Metadata lives in `.git/`, not project root
 
 ---
@@ -152,73 +180,97 @@ git knit init w main b1 b2 b3
 
 ---
 
-### `git knit add <branch>`
+### `git knit add <branch> [--working-branch <name>]`
 
 Add a feature branch to the knit.
 
 **Arguments:**
 
 - `branch`: Feature branch to add
+- `--working-branch <name>`: Target working branch (optional, inferred from current branch if on a working branch)
 
 **Behavior:**
 
 1. Verify knit is initialized
-2. Verify working branch is currently checked out (error if not)
-3. Validate that `branch` exists
-4. Check `branch` is not already in the knit
-5. Append `branch` to `knit.branches` config
-6. Merge `branch` into `workingBranch`
+2. Determine target working branch:
+   - If `--working-branch` specified, use that
+   - If on a working branch (checked out), use that
+   - Otherwise error
+3. Verify working branch is not checked out if specified explicitly and different from current branch
+4. Validate that `branch` exists
+5. Check `branch` is not already in the knit
+6. Append `branch` to `knit.<working-branch>.branches` config
+7. Switch to working branch (if not already there)
+8. Merge `branch` into working branch
 
 **Error Conditions:**
 
 - Knit not initialized
-- Not on working branch
+- Working branch not specified and not currently on a working branch
+- Working branch not found in knit metadata
 - Branch does not exist
 - Branch already in knit
 
 **Example:**
 
 ```bash
+# On working branch w
 git knit add b4
 # Now knit = b1:b2:b3:b4
 # Automatically merges b4 into w
+
+# From any branch
+git knit add b4 --working-branch w
+# Switches to w, adds b4, merges it in
 ```
 
 ---
 
-### `git knit remove <branch>`
+### `git knit remove <branch> [--working-branch <name>]`
 
 Remove a feature branch from the knit.
 
 **Arguments:**
 
 - `branch`: Feature branch to remove
+- `--working-branch <name>`: Target working branch (optional, inferred from current branch if on a working branch)
 
 **Behavior:**
 
 1. Verify knit is initialized
-2. Verify working branch is currently checked out (error if not)
-3. Check `branch` is in the knit
-4. Remove `branch` from `knit.branches` config
-5. Rebuild `workingBranch` with remaining branches
+2. Determine target working branch:
+   - If `--working-branch` specified, use that
+   - If on a working branch (checked out), use that
+   - Otherwise error
+3. Verify working branch is not checked out if specified explicitly and different from current branch
+4. Check `branch` is in the knit
+5. Remove `branch` from `knit.<working-branch>.branches` config
+6. Switch to working branch (if not already there)
+7. Rebuild working branch with remaining branches
 
 **Error Conditions:**
 
 - Knit not initialized
-- Not on working branch
+- Working branch not specified and not currently on a working branch
+- Working branch not found in knit metadata
 - Branch not in knit
 
 **Example:**
 
 ```bash
+# On working branch w
 git knit remove b2
 # Knit = b1:b3
 # w = main + merge(b1) + merge(b3)
+
+# From any branch
+git knit remove b2 --working-branch w
+# Switches to w, removes b2, rebuilds
 ```
 
 ---
 
-### `git knit commit <target-branch> [message]`
+### `git knit commit <target-branch> [message] [--working-branch <name>]`
 
 Commit current uncommitted changes to a target feature branch.
 
@@ -226,11 +278,16 @@ Commit current uncommitted changes to a target feature branch.
 
 - `target-branch`: Feature branch to commit the changes to
 - `message`: Optional commit message (prompts if omitted)
+- `--working-branch <name>`: Target working branch (optional, inferred from current branch if on a working branch)
 
 **Behavior:**
 
 1. **Pre-commit Validation:**
    - Verify knit is initialized
+   - Determine target working branch:
+     - If `--working-branch` specified, use that
+     - If on a working branch (checked out), use that
+     - Otherwise error
    - Verify working branch is currently checked out
    - Verify `target-branch` exists and is in the knit
    - Check for uncommitted changes in working tree (fail if none present)
@@ -249,6 +306,7 @@ Commit current uncommitted changes to a target feature branch.
 **Error Conditions:**
 
 - Knit not initialized
+- Working branch not specified and not currently on a working branch
 - Not on working branch
 - No uncommitted changes in working tree
 - Target branch not in knit
@@ -265,7 +323,7 @@ git knit commit b2 "fix memory leak in parser"
 
 ---
 
-### `git knit move <target-branch> <commit-ref>`
+### `git knit move <target-branch> <commit-ref> [--working-branch <name>]`
 
 Move a committed change from the working branch to a target feature branch.
 
@@ -275,11 +333,16 @@ Move a committed change from the working branch to a target feature branch.
 - `commit-ref`: Reference to commit to move - either:
   - A substring matching the commit message
   - A commit hash prefix (minimum unique prefix required)
+- `--working-branch <name>`: Target working branch (optional, inferred from current branch if on a working branch)
 
 **Behavior:**
 
 1. **Pre-move Validation:**
    - Verify knit is initialized
+   - Determine target working branch:
+     - If `--working-branch` specified, use that
+     - If on a working branch (checked out), use that
+     - Otherwise error
    - Verify working branch is currently checked out
    - Verify `target-branch` exists and is in the knit
    - Check for uncommitted changes in working tree (fail if present)
@@ -330,12 +393,13 @@ Move a committed change from the working branch to a target feature branch.
    ```
 
 6. **Cleanup Old Commit:**
-   - The original commit on `w` is effectively replaced
-   - No explicit cleanup needed since `w` was recreated
+   - The original commit on working branch is effectively replaced
+   - No explicit cleanup needed since working branch was recreated
 
 **Error Conditions:**
 
 - Knit not initialized
+- Working branch not specified and not currently on a working branch
 - Not on working branch
 - Uncommitted changes in working tree
 - Target branch not in knit
@@ -359,26 +423,36 @@ git knit move b2 a1b2c
 
 ---
 
-### `git knit rebuild`
+### `git knit rebuild [--working-branch <name>]`
 
-Force reconstruction of the working branch from all feature branches.
+Force reconstruction of a working branch from all its feature branches.
+
+**Arguments:**
+
+- `--working-branch <name>`: Target working branch (optional, inferred from current branch if on a working branch)
 
 **Behavior:**
 
 1. Verify knit is initialized
-2. Get current branch
-3. If on working branch:
+2. Determine target working branch:
+   - If `--working-branch` specified, use that
+   - If on a working branch (checked out), use that
+   - Otherwise error
+3. Get current branch
+4. If on working branch:
    - Switch to base branch
    - Delete working branch
    - Recreate from base
    - Merge all feature branches
    - Check out working branch
-4. If on other branch:
+5. If on other branch:
    - Only rebuild working branch (don't switch)
 
 **Error Conditions:**
 
 - Knit not initialized
+- Working branch not specified and not currently on a working branch
+- Working branch not found in knit metadata
 - Uncommitted changes on working branch (abort)
 
 **Use Cases:**
@@ -390,53 +464,77 @@ Force reconstruction of the working branch from all feature branches.
 **Example:**
 
 ```bash
+# On working branch w
 git knit rebuild
 # Rebuilds w from scratch using b1, b2, b3
+
+# From any branch
+git knit rebuild --working-branch w
+# Rebuilds w without checking it out
 ```
 
 ---
 
-### `git knit restack`
+### `git knit restack [--working-branch <name>]`
 
 Restack dependent branches using git-spice.
+
+**Arguments:**
+
+- `--working-branch <name>`: Target working branch (optional, inferred from current branch if on a working branch)
 
 **Behavior:**
 
 1. Verify knit is initialized
-2. Check if git-spice is available (not GhostScript)
-3. If available:
+2. Determine target working branch:
+   - If `--working-branch` specified, use that
+   - If on a working branch (checked out), use that
+   - Otherwise error
+3. Check if git-spice is available (not GhostScript)
+4. If available:
    ```bash
    gs stack restack
    ```
-4. If not available:
+5. If not available:
    - Print warning: "git-spice not found, skipping restack"
    - Exit gracefully (not an error)
 
 **Error Conditions:**
 
 - Knit not initialized
+- Working branch not specified and not currently on a working branch
+- Working branch not found in knit metadata
 
 **Note:** This command is provided as a convenience. Restacking is also automatically done during `git knit move` if git-spice is available.
 
 **Example:**
 
 ```bash
+# On working branch w
 git knit restack
 # Runs: gs stack restack
+
+# From any branch
+git knit restack --working-branch w
 ```
 
 ---
 
-### `git knit status`
+### `git knit status [--working-branch <name>]`
 
 Display current knit configuration and state.
 
+**Arguments:**
+
+- `--working-branch <name>`: Target working branch (optional, shows all working branches if omitted)
+
 **Behavior:**
 
+When `--working-branch` is specified:
+
 ```
-git-knit Configuration
-======================
-Working Branch:   w
+git-knit Configuration: w
+=========================
 Base Branch:      main
 Feature Branches: b1, b2, b3
 
@@ -444,10 +542,27 @@ Current Branch:   w
 Is Clean:         yes
 ```
 
+When no arguments specified (shows all working branches):
+
+```
+git-knit Working Branches
+=========================
+
+w:
+  Base Branch:      main
+  Feature Branches: b1, b2, b3
+
+work:
+  Base Branch:      develop
+  Feature Branches: feature-a, feature-b
+
+Current Branch:     w
+Is Clean:           yes
+```
+
 **Fields:**
 
-- Working Branch: Name of merged working branch
-- Base Branch: Base branch
+- Base Branch: Base branch for the working branch
 - Feature Branches: List of feature branches (from config)
 - Current Branch: Currently checked-out branch
 - Is Clean: Whether working tree has uncommitted changes
@@ -455,51 +570,18 @@ Is Clean:         yes
 **Example:**
 
 ```bash
+# Show all working branches
 git knit status
+
+# Show specific working branch
+git knit status --working-branch w
 ```
-
----
-
-### Future Compatibility: Multiple Working Branches
-
-The current git config schema supports a single working branch per repository:
-
-```
-[knit]
-    workingBranch = w
-```
-
-To support multiple working branches in the future without breaking backwards compatibility:
-
-1. **Namespace by working branch name:**
-
-   ```
-   [knit "w"]
-       baseBranch = main
-       branches = b1:b2:b3
-
-   [knit "work"]
-       baseBranch = develop
-       branches = feature-a:feature-b
-   ```
-
-2. **Migration path:**
-   - Current single-working-branch format remains valid
-   - If `knit.workingBranch` exists, use old format
-   - If `knit.<workingBranch>.baseBranch` exists, use new format
-   - Transition command can convert old to new format
-
-3. **Command changes:**
-   - `git knit status` without args: show all knits (or default knit)
-   - `git knit status w`: show specific knit
-   - Commands like `add`/`remove`/`commit`/`move` would need `--working-branch w` flag
-   - When a working branch is checked out, infer it from context
 
 ---
 
 ## Usage Examples
 
-### Example 1: Complete Workflow
+### Example 1: Single Working Branch Workflow
 
 ```bash
 # Initialize knit
@@ -527,11 +609,32 @@ git knit add b4
 # Work continues on w with all changes visible
 ```
 
-### Example 2: Adding Branch Mid-Workflow
+### Example 2: Multiple Working Branches
+
+```bash
+# Initialize first working branch (full stack)
+git knit init w main b1 b2 b3
+
+# Initialize second working branch (partial stack)
+git knit init work main b1 b2
+
+# Work on full stack
+git checkout w
+git knit commit b3 "add new feature"
+
+# Switch to partial stack
+git checkout work
+git knit commit b2 "fix bug in feature 2"
+
+# Show all working branches
+git knit status
+```
+
+### Example 3: Adding Branch Mid-Workflow
 
 ```bash
 # Working on existing knit on branch w
-git knit status
+git knit status --working-branch w
 # Shows: b1, b2, b3
 
 # Need to work on a new feature
@@ -543,22 +646,52 @@ git commit -m "new feature"
 git checkout w
 git knit add b4
 # Now w includes b4 automatically
+
+# Add b4 to the other working branch too
+git knit add b4 --working-branch work
 ```
 
-### Example 3: Removing a Branch
+### Example 4: Removing a Branch
 
 ```bash
 # b3 was merged to main, no longer needed
 git knit remove b3
 # w rebuilt with only b1, b2, b4
+
+# Remove from specific working branch
+git knit remove b2 --working-branch work
 ```
 
-### Example 4: Manual Merge Recovery
+### Example 5: Manual Merge Recovery
 
 ```bash
 # Something went wrong, w has conflicts
 git knit rebuild
 # Clean rebuild from b1, b2, b3, b4
+
+# Rebuild a specific working branch
+git knit rebuild --working-branch work
+```
+
+### Example 6: Context Inference
+
+```bash
+# Currently on w - no need to specify working branch
+git checkout w
+git knit commit b1 "fix"
+# Automatically uses w
+
+# Currently on b1 (feature branch) - must specify working branch
+git checkout b1
+git knit commit b1 "fix" --working-branch w
+# Explicitly targets w's knit
+
+# From non-working, non-feature branch
+git checkout main
+git knit status
+# Shows all working branches
+git knit rebuild --working-branch work
+# Must specify which working branch to rebuild
 ```
 
 ---
@@ -586,11 +719,12 @@ fi
 
 ### Branch Order Preservation
 
-The colon-separated list in `knit.branches` preserves order:
+The colon-separated list in `knit.<working-branch>.branches` preserves order:
 
 - Earlier branches are merged first
 - Later branches depend on earlier ones (if applicable)
 - Order matters for `gs stack restack`
+- Each working branch maintains its own independent branch order
 
 ### Merge Strategy
 
@@ -645,6 +779,44 @@ When switching branches during operations:
 | 2    | Uncommitted changes (operation not safe)                        |
 | 3    | Conflict during cherry-pick or merge (user intervention needed) |
 
+### Working Branch Resolution
+
+Most commands support an optional `--working-branch` flag. Resolution logic:
+
+1. **Explicit flag provided**: Use the specified working branch
+2. **Current branch is a working branch**: Infer from current checkout
+3. **Neither**: Error - must specify working branch
+
+```bash
+# Get current branch name
+current_branch=$(git rev-parse --abbrev-ref HEAD)
+
+# Check if current branch is a working branch
+if git config --local --get "knit.${current_branch}.baseBranch" >/dev/null 2>&1; then
+    working_branch="$current_branch"
+else
+    # Not on a working branch
+    if [ -z "$explicit_working_branch" ]; then
+        echo "Error: Not on a working branch. Use --working-branch <name>"
+        exit 1
+    fi
+    working_branch="$explicit_working_branch"
+fi
+
+# Validate working branch exists in metadata
+if ! git config --local --get "knit.${working_branch}.baseBranch" >/dev/null 2>&1; then
+    echo "Error: Working branch '$working_branch' not found in knit metadata"
+    exit 1
+fi
+```
+
+### List All Working Branches
+
+```bash
+# Get all working branch names
+git config --local --get-regexp '^knit\..*\.baseBranch' | sed 's/^knit\.\(.*\)\.baseBranch.*/\1/'
+```
+
 ---
 
 ## Edge Cases
@@ -675,10 +847,11 @@ When switching branches during operations:
 
 **Behavior:**
 
-- Stored as `knit.branches=b1:b2:b3` (order preserved)
+- Stored as `knit.w.branches=b1:b2:b3` (order preserved)
 - `gs stack restack` (if available) handles dependencies
 - Without git-spice, user must manually rebase `b3` after `b2` changes
 - The knit automatically merges branches in order to maintain dependency relationships
+- Each working branch maintains its own independent dependency chains
 
 ### Case 4: Working Branch Name Conflict
 
@@ -766,10 +939,13 @@ When switching branches during operations:
     bare = false
     logallrefupdates = true
 
-[knit]
-    workingBranch = w
+[knit "w"]
     baseBranch = main
     branches = b1:b2:b3:b4
+
+[knit "work"]
+    baseBranch = develop
+    branches = feature-a:feature-b
 
 [rerere]
     enabled = true
