@@ -223,6 +223,106 @@ def test_get_branch_parent_linear(temp_git_repo):
     assert executor.get_branch_parent("main") is None
 
 
+def test_get_branch_parent_no_merge_commit(temp_git_repo):
+    """Test get_branch_parent when no merge commit found."""
+    executor = GitExecutor(cwd=temp_git_repo)
+    executor.create_branch("feature", "main")
+    executor.checkout("feature")
+    assert executor.get_branch_parent("feature") is None
+
+
+def test_get_branch_parent_multiple_merges(temp_git_repo):
+    """Test get_branch_parent finds the most recent merge."""
+    subprocess.run(["git", "checkout", "-b", "b1"], cwd=temp_git_repo, check=True)
+    (temp_git_repo / "b1.txt").write_text("B1 content")
+    subprocess.run(["git", "add", "."], cwd=temp_git_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "Add b1"], cwd=temp_git_repo, check=True)
+    subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, check=True)
+
+    subprocess.run(["git", "checkout", "-b", "b2"], cwd=temp_git_repo, check=True)
+    (temp_git_repo / "b2.txt").write_text("B2 content")
+    subprocess.run(["git", "add", "."], cwd=temp_git_repo, check=True)
+    subprocess.run(["git", "commit", "-m", "Add b2"], cwd=temp_git_repo, check=True)
+    subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, check=True)
+
+    executor = GitExecutor(cwd=temp_git_repo)
+    executor.create_branch("work", "main")
+    executor.checkout("work")
+
+    executor.merge_branch("b1")
+
+    executor.merge_branch("b2")
+
+    parent = executor.get_branch_parent("work")
+    assert parent == "b2"
+
+
+def test_get_branch_parent_fallback_to_sha(temp_git_repo, monkeypatch):
+    """Test get_branch_parent falls back to SHA when name-rev fails."""
+    executor = GitExecutor(cwd=temp_git_repo)
+    executor.create_branch("b1", "main")
+    executor.checkout("b1")
+    (temp_git_repo / "b1.txt").write_text("b1")
+    executor.run(["add", "."])
+    executor.run(["commit", "-m", "b1"])
+    executor.checkout("main")
+
+    subprocess.run(["git", "merge", "--no-ff", "b1"], cwd=temp_git_repo, check=True)
+
+    original_run = subprocess.run
+
+    def mock_run(args, **kwargs):
+        if "name-rev" in args:
+            result = type("obj", (), {})()
+            result.returncode = 1
+            return result
+        return original_run(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    parent = executor.get_branch_parent("main")
+    assert parent is not None
+
+
+class TestGitExecutorListConfigKeys:
+    """Test list_config_keys edge cases."""
+
+    def test_list_config_keys_no_output(self, temp_git_repo):
+        """Test list_config_keys when config returns no output."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        keys = executor.list_config_keys("knit.nonexistent")
+        assert keys == []
+
+    def test_list_config_keys_with_values(self, temp_git_repo):
+        """Test list_config_keys with actual config values."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        executor.run(["config", "--local", "knit.test.key1", "value1"])
+        executor.run(["config", "--local", "knit.test.key2", "value2"])
+
+        keys = executor.list_config_keys("knit.test")
+        assert "knit.test.key1" in keys
+        assert "knit.test.key2" in keys
+
+    def test_list_config_keys_empty_stdout(self, temp_git_repo, monkeypatch):
+        """Test list_config_keys when stdout is empty but command succeeds."""
+        executor = GitExecutor(cwd=temp_git_repo)
+
+        original_run = executor.run
+
+        def mock_run(args, **kwargs):
+            if "--get-regexp" in args and "empty" in args:
+                result = type("obj", (), {})()
+                result.returncode = 0
+                result.stdout = ""
+                return result
+            return original_run(args, **kwargs)
+
+        monkeypatch.setattr(executor, "run", mock_run)
+
+        keys = executor.list_config_keys("empty")
+        assert keys == []
+
+
 class TestKnitConfig:
     """Test KnitConfig dataclass."""
 

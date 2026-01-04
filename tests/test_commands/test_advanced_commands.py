@@ -50,6 +50,18 @@ class TestCommitCommand:
         )
         assert result.exit_code == 1
 
+    def test_commit_wrong_branch(self, temp_knit_repo, runner, monkeypatch):
+        """Test commit when not on working branch."""
+        (temp_knit_repo / "b1.txt").write_text("content")
+        monkeypatch.chdir(temp_knit_repo)
+        subprocess.run(["git", "add", "."], check=True)
+        subprocess.run(["git", "checkout", "main"], check=True)
+        result = runner.invoke(
+            cli,
+            ["commit", "-m", "test", "b1.txt", "--working-branch", "work"],
+        )
+        assert result.exit_code == 1
+
 
 class TestMoveCommand:
     """Test git knit move command."""
@@ -78,6 +90,25 @@ class TestMoveCommand:
             ["move", "new.txt", "b1", "--working-branch", "work"],
         )
         assert result.exit_code == 0
+
+    def test_move_file_not_found(self, temp_knit_repo, runner, monkeypatch):
+        """Test moving a file that doesn't exist."""
+        monkeypatch.chdir(temp_knit_repo)
+        result = runner.invoke(
+            cli,
+            ["move", "nonexistent.txt", "b1", "--working-branch", "work"],
+        )
+        assert result.exit_code == 1
+
+    def test_move_branch_not_found(self, temp_knit_repo, runner, monkeypatch):
+        """Test moving a file to a branch that doesn't exist."""
+        (temp_knit_repo / "file.txt").write_text("content")
+        monkeypatch.chdir(temp_knit_repo)
+        result = runner.invoke(
+            cli,
+            ["move", "file.txt", "nonexistent", "--working-branch", "work"],
+        )
+        assert result.exit_code == 1
 
 
 class TestRebuildCommand:
