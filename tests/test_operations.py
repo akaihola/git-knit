@@ -512,17 +512,17 @@ class TestKnitRebuilderExtra:
         with pytest.raises(BranchNotFoundError):
             rebuilder.rebuild(config)
 
-    def test_rebuild_was_on_working(self, temp_git_repo_with_branches):
+    def test_rebuild_not_on_working_no_checkout(self, temp_git_repo_with_branches):
         repo = temp_git_repo_with_branches["repo"]
         executor = GitExecutor(cwd=repo)
         manager = KnitConfigManager(executor)
         manager.init_knit("work", "main", ["b1"])
         executor.create_branch("work", "main")
-        executor.checkout("work")
+        executor.checkout("main")
 
         rebuilder = KnitRebuilder(executor)
-        rebuilder.rebuild(manager.get_config("work"))
-        assert executor.get_current_branch() == "work"
+        rebuilder.rebuild(manager.get_config("work"), checkout=False)
+        assert executor.get_current_branch() == "main"
 
     """Test KnitRebuilder."""
 
