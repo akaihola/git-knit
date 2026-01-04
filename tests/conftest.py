@@ -3,6 +3,10 @@ from pathlib import Path
 from typing import Generator
 
 import pytest
+from click.testing import CliRunner
+
+from git_knit.cli import cli
+from git_knit.operations import GitExecutor, KnitConfigManager
 
 
 @pytest.fixture
@@ -19,6 +23,9 @@ def temp_git_repo(tmp_path: Path) -> Generator[Path, None, None]:
     (tmp_path / "README.md").write_text("# Test Repo")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=tmp_path, check=True)
+    
+    # Rename master to main
+    subprocess.run(["git", "branch", "-m", "master", "main"], cwd=tmp_path, check=True)
 
     yield tmp_path
 
@@ -48,24 +55,19 @@ def runner():
 
 
 @pytest.fixture
-def temp_knit_repo(temp_git_repo_with_branches):
+def temp_knit_repo(temp_git_repo):
     """Create a temporary repo with a knit configured."""
-    data = temp_git_repo_with_branches
-    repo = data["repo"]
-    branches = data["branches"]
+    # Create branches b1, b2 first
+    for branch in ["b1", "b2"]:
+        subprocess.run(["git", "checkout", "-b", branch], cwd=temp_git_repo, check=True)
+        (temp_git_repo / f"{branch}.txt").write_text(f"Content for {branch}")
+        subprocess.run(["git", "add", "."], cwd=temp_git_repo, check=True)
+        subprocess.run(["git", "commit", "-m", f"Add {branch}"], cwd=temp_git_repo, check=True)
+        subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, check=True)
 
-    executor = GitExecutor(cwd=repo)
+    executor = GitExecutor(cwd=temp_git_repo)
     manager = KnitConfigManager(executor)
-    manager.init_knit("work", "main", branches)
+    manager.init_knit("work", "main", ["b1", "b2"])
     executor.create_branch("work", "main")
-
     executor.checkout("work")
-    for branch in branches:
-        executor.create_branch(branch, "main")
-        (repo / f"{branch}.txt").write_text(f"Content for {branch}")
-        executor.checkout(branch)
-        executor.run(["add", "."], check=False)
-        executor.run(["commit", "-m", f"Add {branch}"], check=False)
-    executor.checkout("main")
-    executor.checkout("work")
-    return repo
+    return temp_git_repo

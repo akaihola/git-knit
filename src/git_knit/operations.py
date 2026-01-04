@@ -175,7 +175,14 @@ class GitExecutor:
             capture=True,
         )
         parents = result.stdout.strip().split()
-        return parents[1] if len(parents) > 1 else None
+        if len(parents) < 2:
+            return None
+        result = self.run(
+            ["rev-parse", "--abbrev-ref", parents[1]], capture=True, check=False
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return parents[1]
 
 
 class GitSpiceDetector:
@@ -183,34 +190,10 @@ class GitSpiceDetector:
 
     def detect(self) -> Literal["git-spice", "ghostscript", "not-found", "unknown"]:
         """Detect gs binary type."""
-        result = subprocess.run(
-            ["gs", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-
-        if result.returncode != 0:
-            return "not-found"
-
-        output = result.stdout
-        error = result.stderr
-
-        full_output = output + error
-
-        if "git-spice" in full_output.lower():
-            return "git-spice"
-        elif "ghostscript" in full_output.lower():
-            return "ghostscript"
-        else:
-            return "unknown"
-
-    def restack_if_available(self) -> bool:
-        """Run gs stack restack if git-spice is available."""
-        spice_type = self.detect()
-
-        if spice_type != "git-spice":
-            return False
+        result = self.run([self.git, "stack", "restack"], capture=True, check=False)
+        if result and result.returncode == 0:
+            return True
+        return False
 
         subprocess.run(["gs", "stack", "restack"], check=True)
         return True
@@ -237,7 +220,7 @@ class KnitConfigManager:
 
         working_branch = parts[0]
         base_branch = parts[1]
-        feature_branches = tuple(parts[2:]) if len(parts) > 2 else ()
+        feature_branches = tuple(p for p in parts[2:] if p) if len(parts) > 2 else ()
 
         return KnitConfig(
             working_branch=working_branch,
@@ -374,6 +357,9 @@ class KnitRebuilder:
         self.executor.ensure_clean_working_tree()
 
         if self.executor.branch_exists(config.working_branch):
+            if was_on_working:
+                # If we are on the branch we want to rebuild, move to base branch first
+                self.executor.checkout(config.base_branch)
             self.executor.delete_branch(config.working_branch, force=True)
 
         self.executor.create_branch(

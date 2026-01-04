@@ -1,7 +1,9 @@
 from textwrap import dedent
+from pathlib import Path
 
 import click
 
+from ..errors import UncommittedChangesError
 from ..operations import GitExecutor, KnitConfigManager
 from ._shared import resolve_working_branch_param
 
@@ -28,10 +30,13 @@ def commit(working_branch: str, message: str, files: tuple[str, ...]) -> None:
             f"Must be on working branch '{working_branch}', currently on '{current_branch}'"
         )
 
-    if not files:
-        executor.run(["add", "."])
-    else:
+    if files:
+        for f in files:
+            if not Path(f).exists():
+                raise click.ClickException(f"File '{f}' not found")
         executor.run(["add", *files])
+    else:
+        executor.run(["add", "."])
 
     executor.run(["commit", "-m", message])
 
@@ -61,6 +66,8 @@ def move(file: str, source_branch: str, working_branch: str) -> None:
             f"'{source_branch}' is not a feature branch of {working_branch}"
         )
 
+    if not Path(file).exists():
+        raise click.ClickException(f"File '{file}' not found")
     click.echo(f"Moving {file} to {source_branch}")
 
 
@@ -85,8 +92,7 @@ def rebuild(working_branch: str, no_checkout: bool) -> None:
     )
     click.echo(
         dedent(
-            f"""\
-            Rebuilt {working_branch} from {config.base_branch}
+            f"""            Rebuilt {working_branch} from {config.base_branch}
             Feature branches: {branches_str}
             """
         )
