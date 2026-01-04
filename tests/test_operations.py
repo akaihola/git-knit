@@ -145,7 +145,7 @@ class TestKnitConfig:
         config = manager._parse_config("work:main:")
         assert config.working_branch == "work"
         assert config.base_branch == "main"
-        assert config.feature_branches == ("",)
+        assert config.feature_branches == ()
 
 
 class TestKnitConfigManager:
