@@ -178,7 +178,9 @@ class GitExecutor:
         if len(parents) < 2:
             return None
         result = self.run(
-            ["rev-parse", "--abbrev-ref", parents[1]], capture=True, check=False
+            ["name-rev", "--name-only", "--exclude=tags/*", parents[1]],
+            capture=True,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout.strip()
