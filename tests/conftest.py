@@ -38,6 +38,34 @@ def temp_git_repo_with_branches(
             ["git", "commit", "-m", f"Add {branch}"], cwd=temp_git_repo, check=True
         )
 
-    subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, check=True)
-
     return {"repo": temp_git_repo, "branches": branches}
+
+
+@pytest.fixture
+def runner():
+    """Create a Click test runner."""
+    return CliRunner()
+
+
+@pytest.fixture
+def temp_knit_repo(temp_git_repo_with_branches):
+    """Create a temporary repo with a knit configured."""
+    data = temp_git_repo_with_branches
+    repo = data["repo"]
+    branches = data["branches"]
+
+    executor = GitExecutor(cwd=repo)
+    manager = KnitConfigManager(executor)
+    manager.init_knit("work", "main", branches)
+    executor.create_branch("work", "main")
+
+    executor.checkout("work")
+    for branch in branches:
+        executor.create_branch(branch, "main")
+        (repo / f"{branch}.txt").write_text(f"Content for {branch}")
+        executor.checkout(branch)
+        executor.run(["add", "."], check=False)
+        executor.run(["commit", "-m", f"Add {branch}"], check=False)
+    executor.checkout("main")
+    executor.checkout("work")
+    return repo
