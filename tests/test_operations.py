@@ -3,7 +3,10 @@ import subprocess
 import pytest
 
 from git_knit.errors import (
+    AmbiguousCommitError,
     BranchNotFoundError,
+    GitConflictError,
+    KnitError,
     UncommittedChangesError,
 )
 from git_knit.operations import (
@@ -103,15 +106,107 @@ def test_list_config_keys(temp_git_repo):
     keys = executor.list_config_keys("knit.test")
     assert set(keys) == {"knit.test.key1", "knit.test.key2"}
 
-    def test_get_branch_parent(temp_git_repo_with_branches):
-        """Test getting merge commit parent."""
-        repo = temp_git_repo_with_branches["repo"]
-        executor = GitExecutor(cwd=repo)
-        executor.create_branch("work", "main")
-        executor.checkout("work")
-        executor.merge_branch("b1")
-        parent = executor.get_branch_parent(executor.get_current_branch())
-        assert parent is not None
+
+def test_merge_conflict(temp_git_repo_with_branches):
+    repo = temp_git_repo_with_branches["repo"]
+    executor = GitExecutor(cwd=repo)
+    executor.create_branch("work", "main")
+    executor.checkout("work")
+
+    # Create a conflict
+    (repo / "file1.txt").write_text("conflict base")
+    executor.run(["add", "file1.txt"])
+    executor.run(["commit", "-m", "base"])
+
+    executor.create_branch("other", "work")
+    (repo / "file1.txt").write_text("conflict other")
+    executor.run(["add", "file1.txt"])
+    executor.run(["commit", "-m", "other"])
+
+    executor.checkout("work")
+    (repo / "file1.txt").write_text("conflict work")
+    executor.run(["add", "file1.txt"])
+    executor.run(["commit", "-m", "work"])
+
+    with pytest.raises(GitConflictError):
+        executor.merge_branch("other")
+
+
+def test_cherry_pick(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    (temp_git_repo / "cp.txt").write_text("cp content")
+    executor.run(["add", "cp.txt"])
+    executor.run(["commit", "-m", "cp commit"])
+    commit_hash = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+    executor.create_branch("other", "main~1")
+    executor.checkout("other")
+    executor.cherry_pick(commit_hash)
+    assert (temp_git_repo / "cp.txt").exists()
+
+
+def test_cherry_pick_conflict(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    (temp_git_repo / "file.txt").write_text("base")
+    executor.run(["add", "file.txt"])
+    executor.run(["commit", "-m", "base"])
+
+    (temp_git_repo / "file.txt").write_text("cp change")
+    executor.run(["add", "file.txt"])
+    executor.run(["commit", "-m", "cp commit"])
+    commit_hash = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+    executor.run(["reset", "--hard", "HEAD~1"])
+    (temp_git_repo / "file.txt").write_text("local change")
+    executor.run(["add", "file.txt"])
+    executor.run(["commit", "-m", "local commit"])
+
+    with pytest.raises(GitConflictError):
+        executor.cherry_pick(commit_hash)
+
+
+def test_find_commit(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    (temp_git_repo / "find.txt").write_text("content")
+    executor.run(["add", "find.txt"])
+    executor.run(["commit", "-m", "target message"])
+    commit_hash = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+    assert executor.find_commit("HEAD") == commit_hash
+    assert executor.find_commit("target", message=True) == commit_hash
+
+    with pytest.raises(KnitError):
+        executor.find_commit("nonexistent", message=True)
+
+
+def test_find_commit_ambiguous(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    executor.run(["commit", "--allow-empty", "-m", "ambiguous"])
+    executor.run(["commit", "--allow-empty", "-m", "ambiguous"])
+
+    with pytest.raises(AmbiguousCommitError):
+        executor.find_commit("ambiguous", message=True)
+
+
+def test_delete_branch(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    executor.create_branch("to-delete", "main")
+    assert executor.branch_exists("to-delete")
+    executor.delete_branch("to-delete")
+    assert not executor.branch_exists("to-delete")
+
+
+def test_unset_config(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    executor.set_config("test.unset", "value")
+    executor.unset_config("test.unset")
+    with pytest.raises(KnitError):
+        executor.get_config("test.unset")
+
+
+def test_get_branch_parent_linear(temp_git_repo):
+    executor = GitExecutor(cwd=temp_git_repo)
+    assert executor.get_branch_parent("main") is None
 
 
 class TestKnitConfig:
@@ -305,11 +400,116 @@ class TestGitSpiceDetector:
                 raise FileNotFoundError("gs not found")
             return subprocess.run(*args, **kwargs)
 
+    def test_restack_if_available_true(self, temp_git_repo, monkeypatch):
+        detector = GitSpiceDetector()
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = "git-spice version 0.1.0"
+                self.returncode = 0
+
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                return FakeProcess()
+            if args[0] == ["gs", "stack", "restack"]:
+                return FakeProcess()
+            return subprocess.run(*args, **kwargs)
+
         monkeypatch.setattr("subprocess.run", fake_run)
-        assert detector.detect() == "not-found"
+        assert detector.restack_if_available() is True
+
+    def test_restack_if_available_false(self, temp_git_repo, monkeypatch):
+        detector = GitSpiceDetector()
+
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                raise FileNotFoundError("gs not found")
+            return subprocess.run(*args, **kwargs)
+
+        monkeypatch.setattr("subprocess.run", fake_run)
+        assert detector.restack_if_available() is False
+
+    def test_detect_unknown(self, temp_git_repo, monkeypatch):
+        detector = GitSpiceDetector()
+
+        class FakeProcess:
+            def __init__(self):
+                self.stdout = "some other tool"
+                self.returncode = 0
+
+        monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: FakeProcess())
+        assert detector.detect() == "unknown"
 
 
-class TestKnitRebuilder:
+class TestKnitConfigManagerExtra:
+    def test_parse_config_invalid(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        with pytest.raises(KnitError, match="Invalid config format"):
+            manager._parse_config("only_one_part")
+
+    def test_add_branch_duplicate(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        with pytest.raises(KnitError, match="already in the knit"):
+            manager.add_branch("work", "b1")
+
+    def test_remove_branch_not_found(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        with pytest.raises(BranchNotFoundError):
+            manager.remove_branch("work", "nonexistent")
+
+    def test_get_config_no_knit(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        with pytest.raises(KnitError, match="No knit configured"):
+            manager.get_config("nonexistent")
+
+    def test_resolve_working_branch_explicit_not_configured(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        with pytest.raises(KnitError, match="not configured"):
+            manager.resolve_working_branch("nonexistent")
+
+    def test_resolve_working_branch_single_fallback(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        assert manager.resolve_working_branch(None) == "work"
+
+    def test_delete_config(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        manager.delete_config("work")
+        assert not manager.is_initialized()
+
+
+class TestKnitRebuilderExtra:
+    def test_rebuild_missing_feature_branch(self, temp_git_repo):
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["nonexistent"])
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+        with pytest.raises(BranchNotFoundError):
+            rebuilder.rebuild(config)
+
+    def test_rebuild_was_on_working(self, temp_git_repo_with_branches):
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+        assert executor.get_current_branch() == "work"
+
     """Test KnitRebuilder."""
 
     def test_rebuild(self, temp_git_repo_with_branches):
