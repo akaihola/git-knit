@@ -3,7 +3,6 @@ from pathlib import Path
 
 import click
 
-from ..errors import UncommittedChangesError
 from ..operations import GitExecutor, KnitConfigManager
 from ._shared import resolve_working_branch_param
 
@@ -45,30 +44,58 @@ def commit(working_branch: str, message: str, files: tuple[str, ...]) -> None:
 
 
 @click.command()
-@click.argument("file")
-@click.argument("source-branch")
+@click.argument("target-branch")
+@click.argument("commit-ref")
 @click.option(
     "-w", "--working-branch", callback=resolve_working_branch_param, is_eager=True
 )
-def move(file: str, source_branch: str, working_branch: str) -> None:
-    """Move a file to different source branch.
+def move(target_branch: str, commit_ref: str, working_branch: str) -> None:
+    """Move a committed change to a different branch.
 
-    FILE: File to move
-    SOURCE_BRANCH: Source branch to move to
+    TARGET_BRANCH: Branch to move the commit to
+    COMMIT_REF: Commit hash prefix or message substring
     """
     executor = GitExecutor()
     config_manager = KnitConfigManager(executor)
 
     config = config_manager.get_config(working_branch)
 
-    if source_branch not in config.feature_branches:
+    if target_branch not in config.feature_branches:
         raise click.ClickException(
-            f"'{source_branch}' is not a feature branch of {working_branch}"
+            f"'{target_branch}' is not a feature branch of {working_branch}"
         )
 
-    if not Path(file).exists():
-        raise click.ClickException(f"File '{file}' not found")
-    click.echo(f"Moving {file} to {source_branch}")
+    executor.ensure_clean_working_tree()
+
+    try:
+        commit_hash = executor.find_commit(commit_ref, message=False)
+    except Exception:
+        try:
+            commit_hash = executor.find_commit(commit_ref, message=True)
+        except Exception:
+            raise click.ClickException(f"Commit not found: {commit_ref}")
+
+    current_branch = executor.get_current_branch()
+
+    click.echo(f"Moving commit {commit_hash[:7]} to {target_branch}...")
+    executor.checkout(target_branch)
+    executor.cherry_pick(commit_hash)
+
+    from ..operations import GitSpiceDetector
+
+    detector = GitSpiceDetector()
+    if detector.restack_if_available():
+        click.echo("Feature branches restacked using git-spice")
+
+    from ..operations import KnitRebuilder
+
+    rebuilder = KnitRebuilder(executor)
+    rebuilder.rebuild(config)
+
+    if executor.branch_exists(current_branch):
+        executor.checkout(current_branch)
+
+    click.echo(f"Successfully moved commit to {target_branch}")
 
 
 @click.command()
