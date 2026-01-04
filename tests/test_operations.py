@@ -113,23 +113,37 @@ def test_merge_conflict(temp_git_repo_with_branches):
     executor.create_branch("work", "main")
     executor.checkout("work")
 
-    # Create a conflict
-    (repo / "file1.txt").write_text("conflict base")
+    # Create a base commit on work
+    (repo / "file1.txt").write_text("base")
     executor.run(["add", "file1.txt"])
     executor.run(["commit", "-m", "base"])
 
     executor.create_branch("other", "work")
-    (repo / "file1.txt").write_text("conflict other")
+
+    # Change file on work
+    (repo / "file1.txt").write_text("work change")
     executor.run(["add", "file1.txt"])
-    executor.run(["commit", "-m", "other"])
+    executor.run(["commit", "-m", "work commit"])
+
+    # Change same file on other
+    executor.checkout("other")
+    (repo / "file1.txt").write_text("other change")
+    executor.run(["add", "file1.txt"])
+    executor.run(["commit", "-m", "other commit"])
 
     executor.checkout("work")
-    (repo / "file1.txt").write_text("conflict work")
-    executor.run(["add", "file1.txt"])
-    executor.run(["commit", "-m", "work"])
-
     with pytest.raises(GitConflictError):
         executor.merge_branch("other")
+
+
+def test_get_branch_parent(temp_git_repo_with_branches):
+    repo = temp_git_repo_with_branches["repo"]
+    executor = GitExecutor(cwd=repo)
+    executor.create_branch("work", "main")
+    executor.checkout("work")
+    executor.merge_branch("b1")
+    parent = executor.get_branch_parent(executor.get_current_branch())
+    assert parent == "b1"
 
 
 def test_cherry_pick(temp_git_repo):
