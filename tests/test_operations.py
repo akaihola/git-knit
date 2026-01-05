@@ -454,7 +454,7 @@ class TestGitSpiceDetector:
                 return FakeProcess("git-spice version 0.1.0")
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "git-spice"
 
     def test_detect_ghostscript(self, temp_git_repo, monkeypatch):
@@ -472,7 +472,7 @@ class TestGitSpiceDetector:
                 return FakeProcess("GPL Ghostscript 9.50")
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "ghostscript"
 
     def test_detect_not_found(self, temp_git_repo, monkeypatch):
@@ -484,35 +484,8 @@ class TestGitSpiceDetector:
                 raise FileNotFoundError("gs not found")
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "not-found"
-
-    def test_detect_ghostscript(self, temp_git_repo, monkeypatch):
-        """Test detecting GhostScript (should be ignored)."""
-        detector = GitSpiceDetector()
-
-        class FakeProcess:
-            def __init__(self, stdout: str):
-                self.stdout = stdout
-                self.stderr = ""
-                self.returncode = 0
-
-        def fake_run(*args, **kwargs):
-            if args[0] == ["gs", "--help"]:
-                return FakeProcess("GPL Ghostscript 9.50")
-            return subprocess.run(*args, **kwargs)
-
-        monkeypatch.setattr("subprocess.run", fake_run)
-        assert detector.detect() == "ghostscript"
-
-    def test_detect_not_found(self, temp_git_repo, monkeypatch):
-        """Test detecting when gs is not found."""
-        detector = GitSpiceDetector()
-
-        def fake_run(*args, **kwargs):
-            if args[0] == ["gs", "--help"]:
-                raise FileNotFoundError("gs not found")
-            return subprocess.run(*args, **kwargs)
 
     def test_restack_if_available_true(self, temp_git_repo, monkeypatch):
         detector = GitSpiceDetector()
@@ -520,6 +493,7 @@ class TestGitSpiceDetector:
         class FakeProcess:
             def __init__(self):
                 self.stdout = "git-spice version 0.1.0"
+                self.stderr = ""
                 self.returncode = 0
 
         def fake_run(*args, **kwargs):
@@ -529,7 +503,7 @@ class TestGitSpiceDetector:
                 return FakeProcess()
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.restack_if_available() is True
 
     def test_restack_if_available_false(self, temp_git_repo, monkeypatch):
@@ -540,7 +514,7 @@ class TestGitSpiceDetector:
                 raise FileNotFoundError("gs not found")
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.restack_if_available() is False
 
     def test_detect_unknown(self, temp_git_repo, monkeypatch):
@@ -549,9 +523,10 @@ class TestGitSpiceDetector:
         class FakeProcess:
             def __init__(self):
                 self.stdout = "some other tool"
+                self.stderr = ""
                 self.returncode = 0
 
-        monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: FakeProcess())
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeProcess())
         assert detector.detect() == "unknown"
 
 

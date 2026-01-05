@@ -1,5 +1,6 @@
 """Core operations for git-knit."""
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -93,7 +94,8 @@ class GitExecutor:
 
         if result.returncode != 0:
             self.run(["merge", "--abort"], check=False)
-            raise GitConflictError(f"Merge conflict with branch '{branch}'")
+            err = (result.stderr or result.stdout or "").strip()
+            raise GitConflictError(f"Merge conflict with branch '{branch}': {err}")
 
     def cherry_pick(self, commit: str) -> None:
         """Cherry-pick a commit, leaving conflict state on failure for manual resolution."""
@@ -104,7 +106,8 @@ class GitExecutor:
         )
 
         if result.returncode != 0:
-            raise GitConflictError(f"Cherry-pick conflict for commit '{commit}'")
+            err = (result.stderr or result.stdout or "").strip()
+            raise GitConflictError(f"Cherry-pick conflict for commit '{commit}': {err}")
 
     def find_commit(self, ref: str, message: bool = False) -> str:
         """Find commit hash by reference or message substring."""
@@ -151,7 +154,7 @@ class GitExecutor:
     def list_config_keys(self, prefix: str) -> list[str]:
         """List all config keys with a given prefix."""
         result = self.run(
-            ["config", "--get-regexp", prefix],
+            ["config", "--get-regexp", f"^{re.escape(prefix)}"],
             capture=True,
             check=False,
         )
@@ -318,9 +321,10 @@ class GitSpiceDetector:
             result = subprocess.run(
                 ["gs", "--help"], capture_output=True, text=True, check=False
             )
-            if "git-spice" in result.stdout.lower():
+            out = (result.stdout or "") + "\n" + (result.stderr or "")
+            if "git-spice" in out.lower():
                 return "git-spice"
-            if "ghostscript" in result.stdout.lower():
+            if "ghostscript" in out.lower():
                 return "ghostscript"
             return "unknown"
         except FileNotFoundError:
@@ -330,8 +334,6 @@ class GitSpiceDetector:
         if self.detect() == "git-spice":
             subprocess.run(["gs", "stack", "restack"], check=True)
             return True
-        return False
-
         return False
 
 
