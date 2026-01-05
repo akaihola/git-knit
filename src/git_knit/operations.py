@@ -186,6 +186,93 @@ class GitExecutor:
             return result.stdout.strip()
         return parents[1]
 
+    def stash_push(self, message: str | None = None) -> None:
+        """Stash both staged and unstaged changes."""
+        args = ["stash", "push", "--include-untracked", "--all"]
+        if message:
+            args.extend(["-m", message])
+        self.run(args)
+
+    def stash_pop(self) -> None:
+        """Restore the most recent stash."""
+        self.run(["stash", "pop"])
+
+    def get_merge_base(self, ref1: str, ref2: str) -> str:
+        """Get the merge base of two refs."""
+        result = self.run(["merge-base", ref1, ref2], capture=True)
+        return result.stdout.strip()
+
+    def is_ancestor(self, commit: str, branch: str) -> bool:
+        """Check if a commit is an ancestor of a branch."""
+        result = self.run(
+            ["merge-base", "--is-ancestor", commit, branch],
+            check=False,
+            capture=True,
+        )
+        return result.returncode == 0
+
+    def get_commits_between(self, base: str, tip: str) -> list[str]:
+        """Get commits that are on tip but not on base, in chronological order."""
+        result = self.run(
+            ["log", f"{base}..{tip}", "--format=%H", "--reverse"], capture=True
+        )
+        if not result.stdout.strip():
+            return []
+        return result.stdout.strip().split("\n")
+
+    def get_commits_between(self, base: str, tip: str) -> list[str]:
+        """Get commits that are on tip but not on base, in chronological order."""
+        result = self.run(
+            ["log", f"{base}..{tip}", "--format=%H", "--reverse"], capture=True
+        )
+        if not result.stdout.strip():
+            return []
+        return result.stdout.strip().split("\n")
+
+    def is_merge_commit(self, commit: str) -> bool:
+        """Check if a commit is a merge commit."""
+        result = self.run(["rev-parse", f"{commit}^@"], capture=True, check=False)
+        return result.returncode == 0
+
+    def get_local_working_branch_commits(
+        self,
+        working_branch: str,
+        base_branch: str,
+        feature_branches: tuple[str, ...],
+    ) -> list[str]:
+        """Get commits on working branch that aren't from feature branches."""
+        all_commits = self.get_commits_between(base_branch, working_branch)
+        local_commits = []
+
+        for commit in all_commits:
+            if self.is_merge_commit(commit):
+                continue
+
+            is_from_feature = False
+            for fb in feature_branches:
+                result = self.run(
+                    ["reflog", f"refs/heads/{fb}", "--format=%H %gs"],
+                    check=False,
+                    capture=True,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        parts = line.split()
+                        if (
+                            len(parts) >= 2
+                            and parts[0] == commit
+                            and parts[1] == "commit:"
+                        ):
+                            is_from_feature = True
+                            break
+                if is_from_feature:
+                    break
+
+            if not is_from_feature:
+                local_commits.append(commit)
+
+        return local_commits
+
 
 class GitSpiceDetector:
     """Detect if git-spice is available (not GhostScript)."""
@@ -366,16 +453,25 @@ class KnitRebuilder:
         self.executor = executor
 
     def rebuild(self, config: KnitConfig, checkout: bool = True) -> None:
-        """Rebuild working branch by deleting and recreating it."""
+        """Rebuild working branch while preserving commits and changes."""
         current = self.executor.get_current_branch()
         was_on_working = current == config.working_branch
+        had_uncommitted_changes = not self.executor.is_clean_working_tree()
 
-        self.executor.ensure_clean_working_tree()
+        if had_uncommitted_changes:
+            self.executor.stash_push("git-knit: Stashing changes before rebuild")
 
+        saved_local_commits = []
         if self.executor.branch_exists(config.working_branch):
+            saved_local_commits = self.executor.get_local_working_branch_commits(
+                config.working_branch,
+                config.base_branch,
+                config.feature_branches,
+            )
+
             if was_on_working:
-                # If we are on the branch we want to rebuild, move to base branch first
                 self.executor.checkout(config.base_branch)
+
             self.executor.delete_branch(config.working_branch, force=True)
 
         self.executor.create_branch(
@@ -391,3 +487,16 @@ class KnitRebuilder:
                 raise BranchNotFoundError(f"Feature branch '{branch}' does not exist")
 
             self.executor.merge_branch(branch)
+
+        if saved_local_commits:
+            for commit in saved_local_commits:
+                try:
+                    self.executor.cherry_pick(commit)
+                except GitConflictError:
+                    raise GitConflictError(
+                        f"Cherry-pick conflict for commit '{commit[:8]}'. "
+                        f"Resolve conflicts, then run 'git stash pop' to restore uncommitted changes."
+                    )
+
+        if had_uncommitted_changes:
+            self.executor.stash_pop()
