@@ -765,9 +765,121 @@ class TestKnitRebuilderExtra:
         with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
             rebuilder.rebuild(config)
 
-        assert executor.get_current_branch() == "work"
+        assert executor.get_current_branch() == "work.rebuilt"
         content = (temp_git_repo / "conflict.txt").read_text()
         assert "<<<<<<" in content
+
+    def test_rebuild_preserves_original_on_conflict(self, temp_git_repo):
+        """Test rebuild leaves original branch untouched when conflict occurs."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature commit"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "file.txt").write_text("local content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+        local_commit = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("updated feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Updated feature"])
+        executor.checkout("main")
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+
+        with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
+            rebuilder.rebuild(config)
+
+        assert executor.branch_exists("work")
+        work_tip = executor.run(
+            ["rev-parse", "refs/heads/work"], capture=True
+        ).stdout.strip()
+        assert work_tip == local_commit
+        assert executor.get_current_branch() == "work.rebuilt"
+
+    def test_rebuild_creates_and_cleans_backup(self, temp_git_repo):
+        """Test rebuild leaves original branch untouched when conflict occurs."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature commit"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "local.txt").write_text("local content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+        local_commit = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("updated feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Updated feature"])
+        executor.checkout("main")
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+
+        with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
+            rebuilder.rebuild(config)
+
+        assert executor.branch_exists("work")
+        work_tip = executor.run(
+            ["rev-parse", "refs/heads/work"], capture=True
+        ).stdout.strip()
+        assert work_tip != local_commit
+        assert executor.get_current_branch() == "work.rebuilt"
+
+    def test_rebuild_creates_and_cleans_backup(self, temp_git_repo):
+        """Test rebuild creates backup branch and cleans it up on success."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature commit"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "local.txt").write_text("local content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+        rebuilder.rebuild(config)
+
+        assert executor.get_current_branch() == "work"
+        assert not executor.branch_exists("work.rebuilt")
+        assert not executor.branch_exists("knit/backup/work-")
+        assert executor.get_current_branch() == "work"
 
     def test_stash_operations(self, temp_git_repo):
         """Test stash push and pop operations."""
