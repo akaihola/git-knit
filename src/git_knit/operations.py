@@ -220,19 +220,14 @@ class GitExecutor:
             return []
         return result.stdout.strip().split("\n")
 
-    def get_commits_between(self, base: str, tip: str) -> list[str]:
-        """Get commits that are on tip but not on base, in chronological order."""
-        result = self.run(
-            ["log", f"{base}..{tip}", "--format=%H", "--reverse"], capture=True
-        )
-        if not result.stdout.strip():
-            return []
-        return result.stdout.strip().split("\n")
-
     def is_merge_commit(self, commit: str) -> bool:
         """Check if a commit is a merge commit."""
-        result = self.run(["rev-parse", f"{commit}^@"], capture=True, check=False)
-        return result.returncode == 0
+        result = self.run(
+            ["rev-list", "--no-walk", "--parents", "-n", "1", commit], capture=True
+        )
+        parents = result.stdout.strip().split()
+        # First entry is commit hash, need 2+ parents for merge commit
+        return len(parents) > 2
 
     def get_local_working_branch_commits(
         self,
@@ -257,6 +252,8 @@ class GitExecutor:
                 )
                 if result.returncode == 0:
                     for line in result.stdout.strip().split("\n"):
+                        if not line.strip():
+                            continue
                         parts = line.split()
                         if (
                             len(parts) >= 2
@@ -489,8 +486,15 @@ class KnitRebuilder:
             self.executor.merge_branch(branch)
 
         if saved_local_commits:
+            import sys
+
+            print(
+                f"DEBUG: Found {len(saved_local_commits)} local commits to cherry-pick: {[c[:8] for c in saved_local_commits]}",
+                file=sys.stderr,
+            )
             for commit in saved_local_commits:
                 try:
+                    print(f"DEBUG: Cherry-picking commit {commit[:8]}", file=sys.stderr)
                     self.executor.cherry_pick(commit)
                 except GitConflictError:
                     raise GitConflictError(

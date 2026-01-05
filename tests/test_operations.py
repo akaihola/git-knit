@@ -739,7 +739,7 @@ class TestKnitRebuilderExtra:
 
         executor.create_branch("feature", "main")
         executor.checkout("feature")
-        (temp_git_repo / "conflict.txt").write_text("feature version")
+        (temp_git_repo / "conflict.txt").write_text("line1\nline2\nline3\n")
         executor.run(["add", "."])
         executor.run(["commit", "-m", "Add conflict file in feature"])
         executor.checkout("main")
@@ -749,12 +749,12 @@ class TestKnitRebuilderExtra:
         executor.checkout("work")
         executor.merge_branch("feature")
 
-        (temp_git_repo / "conflict.txt").write_text("local version")
+        (temp_git_repo / "conflict.txt").write_text("line1\nLOCAL MOD\nline3\n")
         executor.run(["add", "."])
         executor.run(["commit", "-m", "Local commit"])
 
         executor.checkout("feature")
-        (temp_git_repo / "conflict.txt").write_text("updated feature version")
+        (temp_git_repo / "conflict.txt").write_text("line1\nFEATURE MOD\nline3\n")
         executor.run(["add", "."])
         executor.run(["commit", "-m", "Update conflict file"])
         executor.checkout("main")
