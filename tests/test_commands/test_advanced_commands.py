@@ -66,30 +66,42 @@ class TestCommitCommand:
 class TestMoveCommand:
     """Test git knit move command."""
 
-    def test_move_file(self, temp_knit_repo, runner, monkeypatch):
-        """Test moving a file between branches."""
-        (temp_knit_repo / "b1.txt").write_text("original")
+    def test_move_commit_by_message(self, temp_knit_repo, runner, monkeypatch):
+        """Test moving a commit by message."""
+        (temp_knit_repo / "shared.txt").write_text("original")
         monkeypatch.chdir(temp_knit_repo)
         subprocess.run(["git", "add", "."], check=True)
-        runner.invoke(
-            cli,
-            ["commit", "-m", "test", "--working-branch", "work"],
+        subprocess.run(["git", "checkout", "b1"], cwd=temp_knit_repo, check=True)
+        subprocess.run(["git", "add", "shared.txt"], cwd=temp_knit_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "test commit"], cwd=temp_knit_repo, check=True
         )
+        subprocess.run(["git", "checkout", "work"], cwd=temp_knit_repo, check=True)
+        subprocess.run(["git", "merge", "b1"], cwd=temp_knit_repo, check=True)
         result = runner.invoke(
             cli,
-            ["move", "b1.txt", "b2", "--working-branch", "work"],
+            ["move", "b2", "test commit", "--working-branch", "work"],
         )
         assert result.exit_code == 0
+        assert "Successfully moved commit to b2" in result.output
 
-    def test_move_file_not_tracked(self, temp_knit_repo, runner, monkeypatch):
-        """Test moving an untracked file."""
+    def test_move_commit_from_other_branch(self, temp_knit_repo, runner, monkeypatch):
+        """Test moving when not on working branch."""
         (temp_knit_repo / "new.txt").write_text("content")
         monkeypatch.chdir(temp_knit_repo)
+        subprocess.run(["git", "add", "."], check=True)
+        subprocess.run(["git", "checkout", "b1"], cwd=temp_knit_repo, check=True)
+        subprocess.run(["git", "add", "new.txt"], cwd=temp_knit_repo, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "test commit"], cwd=temp_knit_repo, check=True
+        )
+        subprocess.run(["git", "checkout", "main"], cwd=temp_knit_repo, check=True)
         result = runner.invoke(
             cli,
-            ["move", "new.txt", "b1", "--working-branch", "work"],
+            ["move", "b2", "test commit", "--working-branch", "work"],
         )
         assert result.exit_code == 0
+        assert "Successfully moved commit to b2" in result.output
 
     def test_move_file_not_found(self, temp_knit_repo, runner, monkeypatch):
         """Test moving a file that doesn't exist."""
