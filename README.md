@@ -2,6 +2,34 @@
 
 > Work on multiple Open Source contributions simultaneously in a unified view, then route each change to its own PR-ready branch.
 
+---
+
+## ⚠️ EXPERIMENTAL PROTOTYPE - USE WITH CAUTION
+
+![Status: Prototype](https://img.shields.io/badge/Status-Experimental%20Prototype-red?style=for-the-badge)
+
+**git-knit is currently a rough, vibe-coded prototype and should be treated as UNTRUSTED SOFTWARE.**
+
+### What This Means:
+
+- **No Guarantee of Correctness:** Code has not been thoroughly reviewed or tested in production
+- **Experimental Status:** Core features may change, break, or work unexpectedly
+- **Risk of Data Loss:** Always back up your repository before using git-knit
+- **Use Locally Only:** Do not use on branches you care deeply about without comprehensive testing first
+
+### Before Using:
+
+1. ✅ Back up your repository
+2. ✅ Test on a small, non-critical project first
+3. ✅ Review the source code to understand what commands do
+4. ✅ Report issues and unexpected behavior
+
+### Planned:
+
+A thorough human code review is planned to validate design and implementation. Until then, **assume this is experimental and untrusted software**.
+
+---
+
 **Problem:** Contributing to Open Source often means juggling multiple branches. You want to fix three bugs and add a feature, but need to see and test all changes together. You want to submit separate PRs (because maintainers love focused changes), but you also need to iterate on those PRs after submission. Some work isn't ready to push yet, but you still need it in your local testing environment.
 
 **Solution:** `git-knit` lets you create a merged "working branch" that combines all your feature branches. Make changes in one place, test the complete system, then route each commit to its intended branch. Refine your PRs with force pushes, keep private work local, all while maintaining clean, focused PRs ready for maintainers.
