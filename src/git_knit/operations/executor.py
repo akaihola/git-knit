@@ -13,7 +13,7 @@ from git_knit.errors import (
     KnitError,
     UncommittedChangesError,
 )
-from git_knit.operations.config import KnitConfig
+from git_knit.operations.config import KnitConfig, KnitConfigManager
 
 
 class GitExecutor:
@@ -292,9 +292,6 @@ class GitSpiceDetector:
             except subprocess.CalledProcessError:
                 return False
         return False
-
-
-from git_knit.operations.config import KnitConfigManager
 
 
 class KnitRebuilder:
