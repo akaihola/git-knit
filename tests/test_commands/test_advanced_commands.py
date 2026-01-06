@@ -160,7 +160,7 @@ class TestRestackCommand:
                 return FakeProcess()
             return original_run(cmd, *args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.chdir(temp_knit_repo)
         result = runner.invoke(cli, ["restack", "--working-branch", "work"])
         assert result.exit_code == 0
@@ -175,7 +175,7 @@ class TestRestackCommand:
                 raise FileNotFoundError("gs not found")
             return original_run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         monkeypatch.chdir(temp_knit_repo)
         result = runner.invoke(cli, ["restack", "--working-branch", "work"])
         assert result.exit_code == 1

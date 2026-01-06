@@ -19,13 +19,23 @@ def temp_git_repo(tmp_path: Path) -> Generator[Path, None, None]:
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"], cwd=tmp_path, check=True
     )
+    subprocess.run(
+        ["git", "config", "rerere.enabled", "false"], cwd=tmp_path, check=True
+    )
 
     (tmp_path / "README.md").write_text("# Test Repo")
     subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
     subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=tmp_path, check=True)
-    
-    # Rename master to main
-    subprocess.run(["git", "branch", "-m", "master", "main"], cwd=tmp_path, check=True)
+
+    cur = subprocess.run(
+        ["git", "symbolic-ref", "--short", "HEAD"],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    if cur != "main":
+        subprocess.run(["git", "branch", "-m", cur, "main"], cwd=tmp_path, check=True)
 
     yield tmp_path
 

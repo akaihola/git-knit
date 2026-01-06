@@ -218,6 +218,14 @@ def test_unset_config(temp_git_repo):
         executor.get_config("test.unset")
 
 
+def test_run_always_returns_completed_process(temp_git_repo):
+    """Test that run() always returns CompletedProcess, even with capture=False."""
+    executor = GitExecutor(cwd=temp_git_repo)
+    result = executor.run(["status"], capture=False)
+    assert isinstance(result, subprocess.CompletedProcess)
+    assert result.returncode == 0
+
+
 def test_get_branch_parent_linear(temp_git_repo):
     executor = GitExecutor(cwd=temp_git_repo)
     assert executor.get_branch_parent("main") is None
@@ -443,36 +451,34 @@ class TestGitSpiceDetector:
         """Test detecting git-spice (mocked)."""
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self, stdout: str):
-                self.stdout = stdout
-                self.stderr = ""
-                self.returncode = 0
-
         def fake_run(*args, **kwargs):
             if args[0] == ["gs", "--help"]:
-                return FakeProcess("git-spice version 0.1.0")
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="git-spice version 0.1.0",
+                    stderr="",
+                )
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "git-spice"
 
     def test_detect_ghostscript(self, temp_git_repo, monkeypatch):
         """Test detecting GhostScript (should be ignored)."""
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self, stdout: str):
-                self.stdout = stdout
-                self.stderr = ""
-                self.returncode = 0
-
         def fake_run(*args, **kwargs):
             if args[0] == ["gs", "--help"]:
-                return FakeProcess("GPL Ghostscript 9.50")
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="GPL Ghostscript 9.50",
+                    stderr="",
+                )
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "ghostscript"
 
     def test_detect_not_found(self, temp_git_repo, monkeypatch):
@@ -484,52 +490,30 @@ class TestGitSpiceDetector:
                 raise FileNotFoundError("gs not found")
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "not-found"
-
-    def test_detect_ghostscript(self, temp_git_repo, monkeypatch):
-        """Test detecting GhostScript (should be ignored)."""
-        detector = GitSpiceDetector()
-
-        class FakeProcess:
-            def __init__(self, stdout: str):
-                self.stdout = stdout
-                self.stderr = ""
-                self.returncode = 0
-
-        def fake_run(*args, **kwargs):
-            if args[0] == ["gs", "--help"]:
-                return FakeProcess("GPL Ghostscript 9.50")
-            return subprocess.run(*args, **kwargs)
-
-        monkeypatch.setattr("subprocess.run", fake_run)
-        assert detector.detect() == "ghostscript"
-
-    def test_detect_not_found(self, temp_git_repo, monkeypatch):
-        """Test detecting when gs is not found."""
-        detector = GitSpiceDetector()
-
-        def fake_run(*args, **kwargs):
-            if args[0] == ["gs", "--help"]:
-                raise FileNotFoundError("gs not found")
-            return subprocess.run(*args, **kwargs)
 
     def test_restack_if_available_true(self, temp_git_repo, monkeypatch):
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self):
-                self.stdout = "git-spice version 0.1.0"
-                self.returncode = 0
-
         def fake_run(*args, **kwargs):
             if args[0] == ["gs", "--help"]:
-                return FakeProcess()
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="git-spice version 0.1.0",
+                    stderr="",
+                )
             if args[0] == ["gs", "stack", "restack"]:
-                return FakeProcess()
+                return subprocess.CompletedProcess(
+                    args=["gs", "stack", "restack"],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                )
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.restack_if_available() is True
 
     def test_restack_if_available_false(self, temp_git_repo, monkeypatch):
@@ -540,18 +524,42 @@ class TestGitSpiceDetector:
                 raise FileNotFoundError("gs not found")
             return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", fake_run)
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert detector.restack_if_available() is False
+
+    def test_restack_if_available_error(self, temp_git_repo, monkeypatch):
+        """Test restack returns False when CalledProcessError is raised."""
+        detector = GitSpiceDetector()
+
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="git-spice version 0.1.0",
+                    stderr="",
+                )
+            if args[0] == ["gs", "stack", "restack"]:
+                raise subprocess.CalledProcessError(1, ["gs", "stack", "restack"])
+            return subprocess.run(*args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.restack_if_available() is False
 
     def test_detect_unknown(self, temp_git_repo, monkeypatch):
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self):
-                self.stdout = "some other tool"
-                self.returncode = 0
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="some other tool",
+                    stderr="",
+                )
+            return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr("subprocess.run", lambda *args, **kwargs: FakeProcess())
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "unknown"
 
 
@@ -765,9 +773,121 @@ class TestKnitRebuilderExtra:
         with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
             rebuilder.rebuild(config)
 
-        assert executor.get_current_branch() == "work"
+        assert executor.get_current_branch() == "work.rebuilt"
         content = (temp_git_repo / "conflict.txt").read_text()
         assert "<<<<<<" in content
+
+    def test_rebuild_preserves_original_on_conflict(self, temp_git_repo):
+        """Test rebuild leaves original branch untouched when conflict occurs."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature commit"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "file.txt").write_text("local content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+        local_commit = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("updated feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Updated feature"])
+        executor.checkout("main")
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+
+        with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
+            rebuilder.rebuild(config)
+
+        assert executor.branch_exists("work")
+        work_tip = executor.run(
+            ["rev-parse", "refs/heads/work"], capture=True
+        ).stdout.strip()
+        assert work_tip == local_commit
+        assert executor.get_current_branch() == "work.rebuilt"
+
+    def test_rebuild_creates_and_cleans_backup(self, temp_git_repo):
+        """Test rebuild leaves original branch untouched when conflict occurs."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature commit"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "local.txt").write_text("local content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+        local_commit = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("updated feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Updated feature"])
+        executor.checkout("main")
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+
+        with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
+            rebuilder.rebuild(config)
+
+        assert executor.branch_exists("work")
+        work_tip = executor.run(
+            ["rev-parse", "refs/heads/work"], capture=True
+        ).stdout.strip()
+        assert work_tip != local_commit
+        assert executor.get_current_branch() == "work.rebuilt"
+
+    def test_rebuild_creates_and_cleans_backup(self, temp_git_repo):
+        """Test rebuild creates backup branch and cleans it up on success."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "file.txt").write_text("feature content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature commit"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "local.txt").write_text("local content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+        rebuilder.rebuild(config)
+
+        assert executor.get_current_branch() == "work"
+        assert not executor.branch_exists("work.rebuilt")
+        assert not executor.branch_exists("knit/backup/work-")
+        assert executor.get_current_branch() == "work"
 
     def test_stash_operations(self, temp_git_repo):
         """Test stash push and pop operations."""

@@ -1,5 +1,6 @@
 """Core operations for git-knit."""
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,22 +35,17 @@ class GitExecutor:
         args: list[str],
         check: bool = True,
         capture: bool = False,
-    ) -> subprocess.CompletedProcess[str] | None:
-        """Run a git command safely."""
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a git command safely and always return a CompletedProcess."""
         cmd = ["git"] + args
-
-        if capture:
-            result = subprocess.run(
-                cmd,
-                cwd=self.cwd,
-                check=check,
-                capture_output=True,
-                text=True,
-            )
-            return result
-        else:
-            subprocess.run(cmd, cwd=self.cwd, check=check)
-            return None
+        result = subprocess.run(
+            cmd,
+            cwd=self.cwd,
+            check=check,
+            capture_output=capture,
+            text=True,
+        )
+        return result
 
     def get_current_branch(self) -> str:
         """Get current branch name."""
@@ -93,10 +89,11 @@ class GitExecutor:
 
         if result.returncode != 0:
             self.run(["merge", "--abort"], check=False)
-            raise GitConflictError(f"Merge conflict with branch '{branch}'")
+            err = (result.stderr or result.stdout or "").strip()
+            raise GitConflictError(f"Merge conflict with branch '{branch}': {err}")
 
     def cherry_pick(self, commit: str) -> None:
-        """Cherry-pick a commit."""
+        """Cherry-pick a commit, leaving conflict state on failure for manual resolution."""
         result = self.run(
             ["cherry-pick", commit],
             check=False,
@@ -104,13 +101,15 @@ class GitExecutor:
         )
 
         if result.returncode != 0:
-            self.run(["cherry-pick", "--abort"], check=False)
-            raise GitConflictError(f"Cherry-pick conflict for commit '{commit}'")
+            err = (result.stderr or result.stdout or "").strip()
+            raise GitConflictError(f"Cherry-pick conflict for commit '{commit}': {err}")
 
     def find_commit(self, ref: str, message: bool = False) -> str:
         """Find commit hash by reference or message substring."""
         if not message:
-            result = self.run(["rev-parse", ref], capture=True)
+            result = self.run(["rev-parse", ref], capture=True, check=False)
+            if result.returncode != 0 or not result.stdout.strip():
+                raise KnitError(f"Commit not found: {ref}")
             return result.stdout.strip()
 
         result = self.run(
@@ -137,7 +136,8 @@ class GitExecutor:
         result = self.run(["config", "--get", key], capture=True, check=False)
 
         if result.returncode != 0:
-            raise KnitError(f"Config not found: {key}")
+            error_msg = result.stderr.strip() if result.stderr else "unknown error"
+            raise KnitError(f"Config not found: {key} - {error_msg}")
 
         return result.stdout.strip()
 
@@ -152,7 +152,7 @@ class GitExecutor:
     def list_config_keys(self, prefix: str) -> list[str]:
         """List all config keys with a given prefix."""
         result = self.run(
-            ["config", "--get-regexp", prefix],
+            ["config", "--get-regexp", f"^{re.escape(prefix)}"],
             capture=True,
             check=False,
         )
@@ -169,7 +169,11 @@ class GitExecutor:
         return keys
 
     def get_branch_parent(self, branch: str) -> str | None:
-        """Get the parent branch of a merge commit."""
+        """Get the parent branch of a merge commit.
+
+        Returns the branch name if found via name-rev, or the full SHA if
+        name-rev fails. Returns None if not a merge commit (no parents).
+        """
         result = self.run(
             ["log", f"{branch}", "--format=%P", "-n", "1"],
             capture=True,
@@ -186,30 +190,29 @@ class GitExecutor:
             return result.stdout.strip()
         return parents[1]
 
-    def stash_push(self, message: str | None = None) -> None:
-        """Stash both staged and unstaged changes."""
-        args = ["stash", "push", "--include-untracked", "--all"]
+    def stash_push(self, message: str | None = None) -> bool:
+        """Stash both staged and unstaged changes. Returns True if stash created."""
+        if self.is_clean_working_tree():
+            return False
+        args = ["stash", "push", "--include-untracked"]
         if message:
-            args.extend(["-m", message])
-        self.run(args)
+            args += ["-m", message]
+        result = self.run(args, capture=True, check=False)
+        if result is None:
+            return False
+        out = (result.stdout or "").lower()
+        if "no local changes" in out:
+            return False
+        return True
 
     def stash_pop(self) -> None:
-        """Restore the most recent stash."""
-        self.run(["stash", "pop"])
-
-    def get_merge_base(self, ref1: str, ref2: str) -> str:
-        """Get the merge base of two refs."""
-        result = self.run(["merge-base", ref1, ref2], capture=True)
-        return result.stdout.strip()
-
-    def is_ancestor(self, commit: str, branch: str) -> bool:
-        """Check if a commit is an ancestor of a branch."""
-        result = self.run(
-            ["merge-base", "--is-ancestor", commit, branch],
-            check=False,
-            capture=True,
-        )
-        return result.returncode == 0
+        """Pop the most recent stash, trying to restore index when possible."""
+        result = self.run(["stash", "pop", "--index"], check=False, capture=True)
+        if result and result.returncode == 0:
+            return
+        result2 = self.run(["stash", "pop"], check=False, capture=True)
+        if result2 and result2.returncode != 0:
+            raise KnitError("Failed to pop stash")
 
     def get_commits_between(self, base: str, tip: str) -> list[str]:
         """Get commits that are on tip but not on base, in chronological order."""
@@ -220,14 +223,52 @@ class GitExecutor:
             return []
         return result.stdout.strip().split("\n")
 
-    def is_merge_commit(self, commit: str) -> bool:
-        """Check if a commit is a merge commit."""
+    def get_local_working_branch_commits(
+        self,
+        working_branch: str,
+        base_branch: str,
+        feature_branches: tuple[str, ...],
+    ) -> list[str]:
+        """Get commits on working branch that aren't from feature branches.
+
+        Uses rev-list with --not to deterministically exclude feature branch commits.
+        """
+        args = [
+            "rev-list",
+            "--reverse",
+            "--no-merges",
+            f"{base_branch}..{working_branch}",
+        ]
+        if feature_branches:
+            args += ["--not"] + list(feature_branches)
+        result = self.run(args, capture=True, check=False)
+        if not result or result.returncode != 0:
+            return []
+        return [c for c in (result.stdout or "").splitlines() if c]
+
+    def get_merge_base(self, ref1: str, ref2: str) -> str | None:
+        result = self.run(["merge-base", ref1, ref2], capture=True, check=False)
+        if not result or result.returncode != 0:
+            return None
+        return result.stdout.strip() or None
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
         result = self.run(
-            ["rev-list", "--no-walk", "--parents", "-n", "1", commit], capture=True
+            ["merge-base", "--is-ancestor", ancestor, descendant],
+            check=False,
+            capture=True,
         )
-        parents = result.stdout.strip().split()
-        # First entry is commit hash, need 2+ parents for merge commit
-        return len(parents) > 2
+        return result.returncode == 0 if result else False
+
+    def is_merge_commit(self, commit: str) -> bool:
+        """Check if a commit is a merge commit by counting parents."""
+        result = self.run(
+            ["rev-list", "--parents", "-n", "1", commit], capture=True, check=False
+        )
+        if not result or result.returncode != 0 or not result.stdout:
+            return False
+        parts = result.stdout.strip().split()
+        return len(parts) > 2
 
     def get_local_working_branch_commits(
         self,
@@ -282,9 +323,11 @@ class GitSpiceDetector:
             result = subprocess.run(
                 ["gs", "--help"], capture_output=True, text=True, check=False
             )
-            if "git-spice" in result.stdout.lower():
+            output = (result.stdout or "") + (result.stderr or "")
+            out = output.lower()
+            if "git-spice" in out:
                 return "git-spice"
-            if "ghostscript" in result.stdout.lower():
+            if "ghostscript" in out:
                 return "ghostscript"
             return "unknown"
         except FileNotFoundError:
@@ -292,10 +335,11 @@ class GitSpiceDetector:
 
     def restack_if_available(self) -> bool:
         if self.detect() == "git-spice":
-            subprocess.run(["gs", "stack", "restack"], check=True)
-            return True
-        return False
-
+            try:
+                subprocess.run(["gs", "stack", "restack"], check=True)
+                return True
+            except subprocess.CalledProcessError:
+                return False
         return False
 
 
@@ -450,57 +494,91 @@ class KnitRebuilder:
         self.executor = executor
 
     def rebuild(self, config: KnitConfig, checkout: bool = True) -> None:
-        """Rebuild working branch while preserving commits and changes."""
+        """Safely rebuild working branch while preserving local commits and uncommitted changes.
+
+        Strategy:
+        - Stash uncommitted changes if any
+        - Create a temporary rebuilt branch from base
+        - Merge feature branches into temp
+        - Cherry-pick local commits (non-merge commits reachable from working but not from base/features)
+        - If all succeed, atomically update working branch to point to temp (branch -f)
+        - Restore stash on success
+        - On conflict leave temp and backup branch for manual recovery
+        """
         current = self.executor.get_current_branch()
         was_on_working = current == config.working_branch
-        had_uncommitted_changes = not self.executor.is_clean_working_tree()
 
-        if had_uncommitted_changes:
-            self.executor.stash_push("git-knit: Stashing changes before rebuild")
-
-        saved_local_commits = []
-        if self.executor.branch_exists(config.working_branch):
-            saved_local_commits = self.executor.get_local_working_branch_commits(
-                config.working_branch,
-                config.base_branch,
-                config.feature_branches,
-            )
-
-            if was_on_working:
-                self.executor.checkout(config.base_branch)
-
-            self.executor.delete_branch(config.working_branch, force=True)
-
-        self.executor.create_branch(
-            config.working_branch,
-            config.base_branch,
+        stash_created = (
+            self.executor.stash_push()
+            if not self.executor.is_clean_working_tree()
+            else False
         )
 
-        if checkout or was_on_working:
-            self.executor.checkout(config.working_branch)
+        backup_branch: str | None = None
+        temp_branch = f"{config.working_branch}.rebuilt"
 
-        for branch in config.feature_branches:
-            if not self.executor.branch_exists(branch):
-                raise BranchNotFoundError(f"Feature branch '{branch}' does not exist")
+        try:
+            saved_local_commits: list[str] = []
+            if self.executor.branch_exists(config.working_branch):
+                saved_local_commits = self.executor.get_local_working_branch_commits(
+                    config.working_branch, config.base_branch, config.feature_branches
+                )
 
-            self.executor.merge_branch(branch)
+                if was_on_working:
+                    self.executor.checkout(config.base_branch)
 
-        if saved_local_commits:
-            import sys
+                sha_res = self.executor.run(
+                    ["rev-parse", f"refs/heads/{config.working_branch}"],
+                    capture=True,
+                    check=False,
+                )
+                if sha_res and sha_res.returncode == 0 and sha_res.stdout.strip():
+                    short = sha_res.stdout.strip()[:7]
+                    backup_branch = f"knit/backup/{config.working_branch}-{short}"
+                    self.executor.create_branch(backup_branch, sha_res.stdout.strip())
 
-            print(
-                f"DEBUG: Found {len(saved_local_commits)} local commits to cherry-pick: {[c[:8] for c in saved_local_commits]}",
-                file=sys.stderr,
-            )
-            for commit in saved_local_commits:
-                try:
-                    print(f"DEBUG: Cherry-picking commit {commit[:8]}", file=sys.stderr)
-                    self.executor.cherry_pick(commit)
-                except GitConflictError:
-                    raise GitConflictError(
-                        f"Cherry-pick conflict for commit '{commit[:8]}'. "
-                        f"Resolve conflicts, then run 'git stash pop' to restore uncommitted changes."
+            self.executor.create_branch(temp_branch, config.base_branch)
+            self.executor.checkout(temp_branch)
+
+            for branch in config.feature_branches:
+                if not self.executor.branch_exists(branch):
+                    raise BranchNotFoundError(
+                        f"Feature branch '{branch}' does not exist"
                     )
+                self.executor.merge_branch(branch)
 
-        if had_uncommitted_changes:
-            self.executor.stash_pop()
+            if saved_local_commits:
+                import sys
+
+                print(
+                    f"DEBUG: Cherry-picking {len(saved_local_commits)} local commits",
+                    file=sys.stderr,
+                )
+                for commit in saved_local_commits:
+                    print(f"DEBUG: Cherry-pick {commit[:8]}", file=sys.stderr)
+                    try:
+                        self.executor.cherry_pick(commit)
+                    except GitConflictError as e:
+                        raise GitConflictError(
+                            f"Cherry-pick conflict for commit '{commit[:8]}': {e}"
+                        )
+
+            self.executor.run(["branch", "-f", config.working_branch, temp_branch])
+
+            if checkout or was_on_working:
+                self.executor.checkout(config.working_branch)
+            elif self.executor.get_current_branch() == temp_branch:
+                self.executor.checkout(config.base_branch)
+
+            if self.executor.branch_exists(temp_branch):
+                self.executor.delete_branch(temp_branch, force=True)
+            if backup_branch and self.executor.branch_exists(backup_branch):
+                self.executor.delete_branch(backup_branch, force=True)
+
+            if stash_created:
+                self.executor.stash_pop()
+
+        except GitConflictError:
+            raise
+        except Exception:
+            raise
