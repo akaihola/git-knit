@@ -218,6 +218,14 @@ def test_unset_config(temp_git_repo):
         executor.get_config("test.unset")
 
 
+def test_run_always_returns_completed_process(temp_git_repo):
+    """Test that run() always returns CompletedProcess, even with capture=False."""
+    executor = GitExecutor(cwd=temp_git_repo)
+    result = executor.run(["status"], capture=False)
+    assert isinstance(result, subprocess.CompletedProcess)
+    assert result.returncode == 0
+
+
 def test_get_branch_parent_linear(temp_git_repo):
     executor = GitExecutor(cwd=temp_git_repo)
     assert executor.get_branch_parent("main") is None
@@ -443,15 +451,14 @@ class TestGitSpiceDetector:
         """Test detecting git-spice (mocked)."""
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self, stdout: str):
-                self.stdout = stdout
-                self.stderr = ""
-                self.returncode = 0
-
         def fake_run(*args, **kwargs):
             if args[0] == ["gs", "--help"]:
-                return FakeProcess("git-spice version 0.1.0")
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="git-spice version 0.1.0",
+                    stderr="",
+                )
             return subprocess.run(*args, **kwargs)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -461,15 +468,14 @@ class TestGitSpiceDetector:
         """Test detecting GhostScript (should be ignored)."""
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self, stdout: str):
-                self.stdout = stdout
-                self.stderr = ""
-                self.returncode = 0
-
         def fake_run(*args, **kwargs):
             if args[0] == ["gs", "--help"]:
-                return FakeProcess("GPL Ghostscript 9.50")
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="GPL Ghostscript 9.50",
+                    stderr="",
+                )
             return subprocess.run(*args, **kwargs)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -490,17 +496,21 @@ class TestGitSpiceDetector:
     def test_restack_if_available_true(self, temp_git_repo, monkeypatch):
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self):
-                self.stdout = "git-spice version 0.1.0"
-                self.stderr = ""
-                self.returncode = 0
-
         def fake_run(*args, **kwargs):
             if args[0] == ["gs", "--help"]:
-                return FakeProcess()
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="git-spice version 0.1.0",
+                    stderr="",
+                )
             if args[0] == ["gs", "stack", "restack"]:
-                return FakeProcess()
+                return subprocess.CompletedProcess(
+                    args=["gs", "stack", "restack"],
+                    returncode=0,
+                    stdout="",
+                    stderr="",
+                )
             return subprocess.run(*args, **kwargs)
 
         monkeypatch.setattr(subprocess, "run", fake_run)
@@ -517,16 +527,39 @@ class TestGitSpiceDetector:
         monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.restack_if_available() is False
 
+    def test_restack_if_available_error(self, temp_git_repo, monkeypatch):
+        """Test restack returns False when CalledProcessError is raised."""
+        detector = GitSpiceDetector()
+
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="git-spice version 0.1.0",
+                    stderr="",
+                )
+            if args[0] == ["gs", "stack", "restack"]:
+                raise subprocess.CalledProcessError(1, ["gs", "stack", "restack"])
+            return subprocess.run(*args, **kwargs)
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        assert detector.restack_if_available() is False
+
     def test_detect_unknown(self, temp_git_repo, monkeypatch):
         detector = GitSpiceDetector()
 
-        class FakeProcess:
-            def __init__(self):
-                self.stdout = "some other tool"
-                self.stderr = ""
-                self.returncode = 0
+        def fake_run(*args, **kwargs):
+            if args[0] == ["gs", "--help"]:
+                return subprocess.CompletedProcess(
+                    args=["gs", "--help"],
+                    returncode=0,
+                    stdout="some other tool",
+                    stderr="",
+                )
+            return subprocess.run(*args, **kwargs)
 
-        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: FakeProcess())
+        monkeypatch.setattr(subprocess, "run", fake_run)
         assert detector.detect() == "unknown"
 
 

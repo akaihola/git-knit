@@ -35,22 +35,17 @@ class GitExecutor:
         args: list[str],
         check: bool = True,
         capture: bool = False,
-    ) -> subprocess.CompletedProcess[str] | None:
-        """Run a git command safely."""
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a git command safely and always return a CompletedProcess."""
         cmd = ["git"] + args
-
-        if capture:
-            result = subprocess.run(
-                cmd,
-                cwd=self.cwd,
-                check=check,
-                capture_output=True,
-                text=True,
-            )
-            return result
-        else:
-            subprocess.run(cmd, cwd=self.cwd, check=check)
-            return None
+        result = subprocess.run(
+            cmd,
+            cwd=self.cwd,
+            check=check,
+            capture_output=capture,
+            text=True,
+        )
+        return result
 
     def get_current_branch(self) -> str:
         """Get current branch name."""
@@ -112,7 +107,9 @@ class GitExecutor:
     def find_commit(self, ref: str, message: bool = False) -> str:
         """Find commit hash by reference or message substring."""
         if not message:
-            result = self.run(["rev-parse", ref], capture=True)
+            result = self.run(["rev-parse", ref], capture=True, check=False)
+            if result.returncode != 0 or not result.stdout.strip():
+                raise KnitError(f"Commit not found: {ref}")
             return result.stdout.strip()
 
         result = self.run(
@@ -139,7 +136,8 @@ class GitExecutor:
         result = self.run(["config", "--get", key], capture=True, check=False)
 
         if result.returncode != 0:
-            raise KnitError(f"Config not found: {key}")
+            error_msg = result.stderr.strip() if result.stderr else "unknown error"
+            raise KnitError(f"Config not found: {key} - {error_msg}")
 
         return result.stdout.strip()
 
@@ -171,7 +169,11 @@ class GitExecutor:
         return keys
 
     def get_branch_parent(self, branch: str) -> str | None:
-        """Get the parent branch of a merge commit."""
+        """Get the parent branch of a merge commit.
+
+        Returns the branch name if found via name-rev, or the full SHA if
+        name-rev fails. Returns None if not a merge commit (no parents).
+        """
         result = self.run(
             ["log", f"{branch}", "--format=%P", "-n", "1"],
             capture=True,
@@ -321,10 +323,11 @@ class GitSpiceDetector:
             result = subprocess.run(
                 ["gs", "--help"], capture_output=True, text=True, check=False
             )
-            out = (result.stdout or "") + "\n" + (result.stderr or "")
-            if "git-spice" in out.lower():
+            output = (result.stdout or "") + (result.stderr or "")
+            out = output.lower()
+            if "git-spice" in out:
                 return "git-spice"
-            if "ghostscript" in out.lower():
+            if "ghostscript" in out:
                 return "ghostscript"
             return "unknown"
         except FileNotFoundError:
@@ -332,8 +335,11 @@ class GitSpiceDetector:
 
     def restack_if_available(self) -> bool:
         if self.detect() == "git-spice":
-            subprocess.run(["gs", "stack", "restack"], check=True)
-            return True
+            try:
+                subprocess.run(["gs", "stack", "restack"], check=True)
+                return True
+            except subprocess.CalledProcessError:
+                return False
         return False
 
 
