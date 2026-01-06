@@ -270,47 +270,6 @@ class GitExecutor:
         parts = result.stdout.strip().split()
         return len(parts) > 2
 
-    def get_local_working_branch_commits(
-        self,
-        working_branch: str,
-        base_branch: str,
-        feature_branches: tuple[str, ...],
-    ) -> list[str]:
-        """Get commits on working branch that aren't from feature branches."""
-        all_commits = self.get_commits_between(base_branch, working_branch)
-        local_commits = []
-
-        for commit in all_commits:
-            if self.is_merge_commit(commit):
-                continue
-
-            is_from_feature = False
-            for fb in feature_branches:
-                result = self.run(
-                    ["reflog", f"refs/heads/{fb}", "--format=%H %gs"],
-                    check=False,
-                    capture=True,
-                )
-                if result.returncode == 0:
-                    for line in result.stdout.strip().split("\n"):
-                        if not line.strip():
-                            continue
-                        parts = line.split()
-                        if (
-                            len(parts) >= 2
-                            and parts[0] == commit
-                            and parts[1] == "commit:"
-                        ):
-                            is_from_feature = True
-                            break
-                if is_from_feature:
-                    break
-
-            if not is_from_feature:
-                local_commits.append(commit)
-
-        return local_commits
-
 
 class GitSpiceDetector:
     """Detect if git-spice is available (not GhostScript)."""
