@@ -641,3 +641,221 @@ class TestKnitRebuilderExtra:
         assert executor.get_current_branch() == "work"
         result = executor.run(["log", "--oneline"], capture=True)
         assert "Add b1" in result.stdout or "Add b2" in result.stdout
+
+    def test_rebuild_with_uncommitted_changes(self, temp_git_repo_with_branches):
+        """Test rebuild preserves uncommitted changes."""
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        (repo / "uncommitted.txt").write_text("uncommitted work")
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        assert (repo / "uncommitted.txt").read_text() == "uncommitted work"
+        assert executor.get_current_branch() == "work"
+
+    def test_rebuild_with_working_branch_commits(self, temp_git_repo_with_branches):
+        """Test rebuild preserves local commits on working branch."""
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        (repo / "local1.txt").write_text("local work 1")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit 1"])
+
+        (repo / "local2.txt").write_text("local work 2")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit 2"])
+
+        log_result = executor.run(["log", "--oneline", "main..work"], capture=True)
+        local_commit_count = len(
+            [l for l in log_result.stdout.split("\n") if "Local" in l]
+        )
+        assert local_commit_count == 2
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        log_result = executor.run(["log", "--oneline", "main..work"], capture=True)
+        assert "Local commit 1" in log_result.stdout
+        assert "Local commit 2" in log_result.stdout
+
+    def test_rebuild_with_both_commits_and_changes(self, temp_git_repo_with_branches):
+        """Test rebuild preserves both commits and uncommitted changes."""
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        (repo / "committed.txt").write_text("committed work")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+
+        (repo / "uncommitted.txt").write_text("uncommitted work")
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        assert (repo / "committed.txt").read_text() == "committed work"
+        assert (repo / "uncommitted.txt").read_text() == "uncommitted work"
+
+    def test_rebuild_excludes_feature_branch_commits(self, temp_git_repo_with_branches):
+        """Test rebuild only preserves local commits, not feature branch commits."""
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        log_before = executor.run(["log", "--oneline", "-n", "5"], capture=True).stdout
+        assert "Add b1" in log_before
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        log_after = executor.run(["log", "--oneline", "-n", "5"], capture=True).stdout
+        assert "Add b1" in log_after
+
+    def test_rebuild_conflict_handling(self, temp_git_repo):
+        """Test rebuild leaves conflict state when cherry-pick conflicts."""
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "conflict.txt").write_text("line1\nline2\nline3\n")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Add conflict file in feature"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feature"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feature")
+
+        (temp_git_repo / "conflict.txt").write_text("line1\nLOCAL MOD\nline3\n")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+
+        executor.checkout("feature")
+        (temp_git_repo / "conflict.txt").write_text("line1\nFEATURE MOD\nline3\n")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Update conflict file"])
+        executor.checkout("main")
+
+        rebuilder = KnitRebuilder(executor)
+        config = manager.get_config("work")
+
+        with pytest.raises(GitConflictError, match="Cherry-pick conflict"):
+            rebuilder.rebuild(config)
+
+        assert executor.get_current_branch() == "work"
+        content = (temp_git_repo / "conflict.txt").read_text()
+        assert "<<<<<<" in content
+
+    def test_stash_operations(self, temp_git_repo):
+        """Test stash push and pop operations."""
+        executor = GitExecutor(cwd=temp_git_repo)
+
+        (temp_git_repo / "file.txt").write_text("content")
+        assert not executor.is_clean_working_tree()
+
+        executor.stash_push("test stash")
+        assert executor.is_clean_working_tree()
+
+        (temp_git_repo / "other.txt").write_text("other")
+        executor.stash_push("second stash")
+
+        executor.stash_pop()
+        assert (temp_git_repo / "other.txt").read_text() == "other"
+
+    def test_get_commits_between(self, temp_git_repo):
+        """Test getting commits between two refs."""
+        executor = GitExecutor(cwd=temp_git_repo)
+
+        executor.create_branch("feature", "main")
+        executor.checkout("feature")
+        (temp_git_repo / "f1.txt").write_text("f1")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature 1"])
+        (temp_git_repo / "f2.txt").write_text("f2")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Feature 2"])
+
+        commits = executor.get_commits_between("main", "feature")
+        assert len(commits) == 2
+        assert "Feature 1" not in "".join(commits)
+        assert "Feature 2" not in "".join(commits)
+
+    def test_is_ancestor(self, temp_git_repo):
+        """Test checking if commit is ancestor."""
+        executor = GitExecutor(cwd=temp_git_repo)
+
+        (temp_git_repo / "file.txt").write_text("content")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "New commit"])
+
+        commit_hash = executor.run(["rev-parse", "HEAD"], capture=True).stdout.strip()
+        assert executor.is_ancestor(commit_hash, "HEAD")
+        assert not executor.is_ancestor("HEAD~5", "HEAD")
+
+    def test_get_merge_base(self, temp_git_repo):
+        """Test getting merge base."""
+        executor = GitExecutor(cwd=temp_git_repo)
+
+        executor.create_branch("branch1", "main")
+        executor.checkout("branch1")
+        (temp_git_repo / "b1.txt").write_text("b1")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Branch 1"])
+        executor.checkout("main")
+
+        executor.create_branch("branch2", "main")
+        executor.checkout("branch2")
+        (temp_git_repo / "b2.txt").write_text("b2")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Branch 2"])
+
+        merge_base = executor.get_merge_base("branch1", "branch2")
+        main_hash = executor.run(["rev-parse", "main"], capture=True).stdout.strip()
+        assert merge_base == main_hash
+
+    def test_get_local_working_branch_commits(self, temp_git_repo_with_branches):
+        """Test filtering out feature branch commits."""
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        (repo / "local.txt").write_text("local work")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "Local commit"])
+
+        local_commits = executor.get_local_working_branch_commits(
+            "work", "main", ("b1",)
+        )
+        assert len(local_commits) == 1
+
+        log_result = executor.run(
+            ["log", "-n", "1", local_commits[0], "--format=%s"], capture=True
+        )
+        assert "Local commit" in log_result.stdout
