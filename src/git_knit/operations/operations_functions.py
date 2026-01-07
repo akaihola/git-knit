@@ -1,7 +1,6 @@
 """Pure functions for complex git workflows."""
 
 import subprocess
-from typing import Optional
 
 from git_knit.errors import UncommittedChangesError, GitConflictError
 from git_knit.operations.executor_functions import (
@@ -23,7 +22,7 @@ from git_knit.operations.executor_functions import (
 def rebuild_working_branch(
     working_branch: str,
     base_branch: str,
-    feature_branches: list[str],
+    feature_branches: tuple[str, ...] | list[str],
 ) -> None:
     """
     Rebuild a working branch from scratch while preserving local commits.
@@ -40,7 +39,7 @@ def rebuild_working_branch(
     Args:
         working_branch: Name of working branch to rebuild
         base_branch: Base branch to rebuild from
-        feature_branches: List of feature branches to merge
+        feature_branches: Tuple or list of feature branches to merge
 
     Raises:
         UncommittedChangesError: If working tree has uncommitted changes
@@ -101,7 +100,7 @@ def rebuild_working_branch(
             pass
 
 
-def get_local_commits(base_branch: str, feature_branches: list[str]) -> list[str]:
+def get_local_commits(base_branch: str, feature_branches: tuple[str, ...] | list[str]) -> list[str]:
     """Get commits that are local to working branch (not from base or features)."""
     commits = get_commits_between(base_branch, "HEAD")
     local = []

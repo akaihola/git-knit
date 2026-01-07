@@ -127,7 +127,7 @@ def test_get_config_returns_knit_config(fake_process):
     assert config is not None
     assert config.working_branch == "main-working"
     assert config.base_branch == "main"
-    assert config.feature_branches == ["feature/a", "feature/b"]
+    assert config.feature_branches == ("feature/a", "feature/b")
 
 
 def test_get_config_not_found_returns_none(fake_process):

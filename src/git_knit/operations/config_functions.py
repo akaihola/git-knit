@@ -1,7 +1,5 @@
 """Pure functions for managing knit configuration."""
 
-from typing import Optional
-
 from git_knit.errors import (
     BranchNotFoundError,
     BranchNotInKnitError,
@@ -69,7 +67,7 @@ def remove_branch(working_branch: str, branch: str) -> None:
             set_config_value(section, "feature_branches", fb)
 
 
-def get_config(working_branch: str) -> Optional[KnitConfig]:
+def get_config(working_branch: str) -> KnitConfig | None:
     """Retrieve the knit configuration for a working branch."""
     section = _get_section(working_branch)
 
@@ -81,15 +79,15 @@ def get_config(working_branch: str) -> Optional[KnitConfig]:
     # Note: git config returns multiple values for the same key
     feature_branches_str = get_config_value(section, "feature_branches")
     if feature_branches_str is None:
-        feature_branches = []
+        feature_branches_list = []
     else:
         # Parse comma-separated or newline-separated values
-        feature_branches = [fb.strip() for fb in feature_branches_str.split("\n") if fb.strip()]
+        feature_branches_list = [fb.strip() for fb in feature_branches_str.split("\n") if fb.strip()]
 
     return KnitConfig(
         working_branch=working_branch,
         base_branch=base_branch,
-        feature_branches=feature_branches,
+        feature_branches=tuple(feature_branches_list),
     )
 
 
@@ -105,7 +103,7 @@ def list_working_branches() -> list[str]:
     return sorted(list(working_branches))
 
 
-def resolve_working_branch(working_branch: Optional[str]) -> str:
+def resolve_working_branch(working_branch: str | None) -> str:
     """Resolve the working branch from explicit argument or current branch."""
     if working_branch:
         config = get_config(working_branch)

@@ -9,4 +9,4 @@ class KnitConfig:
 
     working_branch: str
     base_branch: str
-    feature_branches: list[str]
+    feature_branches: tuple[str, ...]

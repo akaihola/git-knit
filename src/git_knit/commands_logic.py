@@ -1,10 +1,7 @@
 """Pure functions for command implementations."""
 
-from typing import Optional
-
 import click
 
-from git_knit.operations.config import KnitConfig
 from git_knit.operations.config_functions import (
     init_knit,
     add_branch,
@@ -39,12 +36,11 @@ def cmd_init(
 
 
 def cmd_add(
-    working_branch: Optional[str],
+    working_branch: str | None,
     branch: str,
 ) -> None:
     """Add a branch to a knit."""
     wb = resolve_working_branch(working_branch)
-    config = get_config(wb)
 
     add_branch(wb, branch)
 
@@ -53,25 +49,27 @@ def cmd_add(
 
 
 def cmd_remove(
-    working_branch: Optional[str],
+    working_branch: str | None,
     branch: str,
 ) -> None:
     """Remove a branch from a knit and rebuild."""
     wb = resolve_working_branch(working_branch)
-    config = get_config(wb)
 
     remove_branch(wb, branch)
 
-    # Rebuild after removing
+    # Rebuild after removing - need to get fresh config after removal
+    config = get_config(wb)
+    assert config is not None, f"Working branch {wb} should be configured"
     rebuild_working_branch(wb, config.base_branch, config.feature_branches)
 
 
 def cmd_status(
-    working_branch: Optional[str],
+    working_branch: str | None,
 ) -> None:
     """Display knit configuration."""
     wb = resolve_working_branch(working_branch)
     config = get_config(wb)
+    assert config is not None, f"Working branch {wb} should be configured"
 
     click.echo(f"Working branch: {config.working_branch}")
     click.echo(f"Base branch: {config.base_branch}")
@@ -86,6 +84,7 @@ def cmd_move(
 ) -> None:
     """Move a commit to a different branch."""
     commit = find_commit(commit_ref)
+    assert commit is not None, f"Commit {commit_ref} not found"
 
     checkout(target_branch)
     merge_branch(commit)
@@ -99,18 +98,19 @@ def cmd_move(
 
 
 def cmd_rebuild(
-    working_branch: Optional[str],
+    working_branch: str | None,
 ) -> None:
     """Force rebuild a knit from scratch."""
     wb = resolve_working_branch(working_branch)
     config = get_config(wb)
+    assert config is not None, f"Working branch {wb} should be configured"
 
     rebuild_working_branch(wb, config.base_branch, config.feature_branches)
 
 
 def cmd_restack(
-    working_branch: Optional[str],
+    working_branch: str | None,
 ) -> None:
     """Restack branches using git-spice."""
-    wb = resolve_working_branch(working_branch)
+    resolve_working_branch(working_branch)
     detect_and_restack()
