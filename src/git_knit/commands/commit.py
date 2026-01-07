@@ -1,11 +1,13 @@
-from textwrap import dedent
+import subprocess
 from pathlib import Path
+from textwrap import dedent
 
 import click
 
 from ..commands_logic import cmd_move, cmd_rebuild, cmd_restack
-from ..operations.executor_functions import get_current_branch
 from ..errors import KnitError
+from ..operations.config_functions import get_config
+from ..operations.executor_functions import get_current_branch
 from ._shared import resolve_working_branch_param
 
 
@@ -31,13 +33,10 @@ def commit(working_branch: str, message: str, files: tuple[str, ...]) -> None:
             for f in files:
                 if not Path(f).exists():
                     raise click.ClickException(f"File '{f}' not found")
-            import subprocess
             subprocess.run(["git", "add", *files], check=True)
         else:
-            import subprocess
             subprocess.run(["git", "add", "."], check=True)
 
-        import subprocess
         subprocess.run(["git", "commit", "-m", message], check=True)
 
         click.echo("Commits created on source branches:")
@@ -69,8 +68,6 @@ def move(target_branch: str, commit_ref: str) -> None:
 def rebuild(working_branch: str) -> None:
     """Rebuild working branch from scratch."""
     try:
-        from ..operations.config_functions import get_config
-
         cmd_rebuild(working_branch)
         config = get_config(working_branch)
 
