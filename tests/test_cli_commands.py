@@ -1,6 +1,7 @@
 """Integration tests for Click commands."""
 
 import pytest
+from shlex import split
 from click.testing import CliRunner
 
 from git_knit.cli import cli
@@ -10,7 +11,7 @@ from git_knit.cli import cli
 def test_init_command(temp_git_repo_with_branches):
     """Test init command through CLI"""
     runner = CliRunner()
-    result = runner.invoke(cli, ["init", "main-working", "main", "b1", "b2"])
+    result = runner.invoke(cli, split("init main-working main b1 b2"))
     assert result.exit_code == 0
 
 
@@ -18,7 +19,7 @@ def test_init_command(temp_git_repo_with_branches):
 def test_add_command(temp_knit_repo):
     """Test add command through CLI"""
     runner = CliRunner()
-    result = runner.invoke(cli, ["add", "-w", "work", "b3"])
+    result = runner.invoke(cli, split("add -w work b3"))
     assert result.exit_code == 0
 
 
@@ -26,7 +27,7 @@ def test_add_command(temp_knit_repo):
 def test_status_command(temp_knit_repo):
     """Test status command through CLI"""
     runner = CliRunner()
-    result = runner.invoke(cli, ["status", "-w", "work"])
+    result = runner.invoke(cli, split("status -w work"))
     assert result.exit_code == 0
     assert "work" in result.output
 
@@ -35,7 +36,7 @@ def test_status_command(temp_knit_repo):
 def test_remove_command(temp_knit_repo):
     """Test remove command through CLI"""
     runner = CliRunner()
-    result = runner.invoke(cli, ["remove", "-w", "work", "b1"])
+    result = runner.invoke(cli, split("remove -w work b1"))
     assert result.exit_code == 0
 
 
@@ -43,5 +44,5 @@ def test_remove_command(temp_knit_repo):
 def test_rebuild_command(temp_knit_repo):
     """Test rebuild command through CLI"""
     runner = CliRunner()
-    result = runner.invoke(cli, ["rebuild", "-w", "work"])
+    result = runner.invoke(cli, split("rebuild -w work"))
     assert result.exit_code == 0

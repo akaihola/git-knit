@@ -1,8 +1,6 @@
-import pytest
+from pytest_check import check
 from git_knit.commands_logic import (
     cmd_init,
-    cmd_add,
-    cmd_remove,
     cmd_status,
     cmd_move,
     cmd_rebuild,
@@ -69,10 +67,10 @@ def test_cmd_status(fake_process, capsys):
 
     cmd_status(None)
     captured = capsys.readouterr()
-    assert "main-working" in captured.out
-    assert "main" in captured.out
-    assert "feature/a" in captured.out
-    assert "feature/b" in captured.out
+    check("main-working" in captured.out)
+    check("main" in captured.out)
+    check("feature/a" in captured.out)
+    check("feature/b" in captured.out)
 
 
 def test_cmd_move_commit(fake_process):

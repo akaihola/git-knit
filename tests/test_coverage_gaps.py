@@ -1,6 +1,6 @@
 """Tests to fill coverage gaps."""
 
-import pytest
+from pytest_check import check
 from git_knit.operations.executor_functions import (
     get_config_value,
     set_config_value,
@@ -69,8 +69,8 @@ def test_list_config_keys_with_values(fake_process):
         stdout="test.key1 value1\ntest.key2 value2\n"
     )
     result = list_config_keys("test")
-    assert "key1" in result
-    assert "key2" in result
+    check("key1" in result)
+    check("key2" in result)
 
 
 def test_get_section():
