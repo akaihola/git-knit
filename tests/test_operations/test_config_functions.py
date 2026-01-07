@@ -7,8 +7,8 @@ from git_knit.operations.config_functions import (
     list_working_branches,
     resolve_working_branch,
     delete_config,
+    _get_section,
 )
-from git_knit.operations.config import KnitConfig
 from git_knit.errors import (
     WorkingBranchNotSetError,
     BranchNotInKnitError,
@@ -226,3 +226,9 @@ def test_delete_config(fake_process):
     )
 
     delete_config("my-working")
+
+
+def test_get_section():
+    """Test the _get_section helper function"""
+    result = _get_section("my-branch")
+    assert result == "knit.my-branch"
