@@ -1,5 +1,8 @@
 import pytest
+from textwrap import dedent
+
 from pytest_check import check
+
 from git_knit.operations.executor_functions import (
     run_git_command,
     get_current_branch,
@@ -155,7 +158,12 @@ def test_get_commits_between(fake_process):
     """Test getting commits between two refs"""
     fake_process.register_subprocess(
         ["git", "rev-list", "base..feature"],
-        stdout="abc123\ndef456\n"
+        stdout=dedent(
+            """\
+            abc123
+            def456
+            """
+        ),
     )
     commits = get_commits_between("base", "feature")
     assert commits == ["abc123", "def456"]
@@ -189,7 +197,14 @@ def test_is_merge_commit_true(fake_process):
     """Test merge commit detection - is merge"""
     fake_process.register_subprocess(
         ["git", "cat-file", "-p", "abc123"],
-        stdout="tree xyz789\nparent abc111\nparent abc222\nauthor ...\n"
+        stdout=dedent(
+            """\
+            tree xyz789
+            parent abc111
+            parent abc222
+            author ...
+            """
+        ),
     )
     assert is_merge_commit("abc123") is True
 
@@ -197,7 +212,13 @@ def test_is_merge_commit_false(fake_process):
     """Test merge commit detection - not merge"""
     fake_process.register_subprocess(
         ["git", "cat-file", "-p", "abc123"],
-        stdout="tree xyz789\nparent abc111\nauthor ...\n"
+        stdout=dedent(
+            """\
+            tree xyz789
+            parent abc111
+            author ...
+            """
+        ),
     )
     assert is_merge_commit("abc123") is False
 
@@ -281,7 +302,12 @@ def test_list_config_keys_with_values(fake_process):
     """Test listing config keys with values"""
     fake_process.register_subprocess(
         ["git", "config", "--get-regexp", "^test\\."],
-        stdout="test.key1 value1\ntest.key2 value2\n"
+        stdout=dedent(
+            """\
+            test.key1 value1
+            test.key2 value2
+            """
+        ),
     )
     result = list_config_keys("test")
     check("key1" in result)

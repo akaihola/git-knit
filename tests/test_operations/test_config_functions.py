@@ -1,4 +1,6 @@
 import pytest
+from textwrap import dedent
+
 from git_knit.operations.config_functions import (
     init_knit,
     add_branch,
@@ -83,7 +85,12 @@ def test_remove_branch_from_knit(fake_process):
     )
     fake_process.register_subprocess(
         ["git", "config", "--get", "knit.main-working.feature-branches"],
-        stdout="feature/a\nfeature/b\n"
+        stdout=dedent(
+            """\
+            feature/a
+            feature/b
+            """
+        ),
     )
     fake_process.register_subprocess(
         ["git", "config", "--unset", "knit.main-working.feature-branches"],
@@ -120,7 +127,12 @@ def test_get_config_returns_knit_config(fake_process):
     )
     fake_process.register_subprocess(
         ["git", "config", "--get", "knit.main-working.feature-branches"],
-        stdout="feature/a\nfeature/b\n"
+        stdout=dedent(
+            """\
+            feature/a
+            feature/b
+            """
+        ),
     )
 
     config = get_config("main-working")
@@ -146,7 +158,12 @@ def test_list_working_branches(fake_process):
     """Test listing all working branches"""
     fake_process.register_subprocess(
         ["git", "config", "--get-regexp", "^knit\\."],
-        stdout="knit.main-working.base-branch main\nknit.dev-working.base-branch dev\n"
+        stdout=dedent(
+            """\
+            knit.main-working.base-branch main
+            knit.dev-working.base-branch dev
+            """
+        ),
     )
 
     branches = list_working_branches()
