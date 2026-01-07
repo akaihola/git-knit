@@ -1,7 +1,11 @@
 """CLI entry point for git-knit."""
 
 import click
-from pathlib import Path
+
+from .commands.init import init
+from .commands.add import add
+from .commands.remove import remove, status
+from .commands.commit import commit, move, rebuild, restack
 
 
 @click.group()
@@ -13,13 +17,6 @@ def cli(ctx: click.Context) -> None:
     into a working branch, then route commits back to their sources.
     """
     ctx.ensure_object(dict)
-
-
-# Import and register commands
-from .commands.init import init
-from .commands.add import add
-from .commands.remove import remove, status
-from .commands.commit import commit, move, rebuild, restack
 
 cli.add_command(init)
 cli.add_command(add)

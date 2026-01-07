@@ -3,7 +3,7 @@ from git_knit.operations.operations_functions import (
     rebuild_working_branch,
     detect_and_restack,
 )
-from git_knit.errors import GitConflictError, UncommittedChangesError
+from git_knit.errors import UncommittedChangesError
 
 
 def test_rebuild_working_branch_requires_clean_tree(fake_process):
