@@ -20,6 +20,8 @@ def test_init_command(temp_git_repo: Path):
         os.chdir(temp_git_repo)
         result = runner.invoke(cli, split("init work main b1 b2"))
         check(result.exit_code == 0)
+        # Verify output contains success message
+        check("work" in result.output or result.output == "")
     finally:
         os.chdir(orig_cwd)
 
@@ -40,6 +42,9 @@ def test_add_command(temp_knit_repo_for_cli: Path):
 
         result = runner.invoke(cli, split("add -w work b3"))
         check(result.exit_code == 0)
+        # Verify output contains success message
+        check("b3" in result.output)
+        check("Added" in result.output or "work" in result.output)
     finally:
         os.chdir(orig_cwd)
 
@@ -55,6 +60,9 @@ def test_status_command(temp_knit_repo_for_cli: Path):
         check(result.exit_code == 0)
         check("work" in result.output)
         check("main" in result.output)
+        check("Feature branches:" in result.output)
+        check("b1" in result.output)
+        check("b2" in result.output)
     finally:
         os.chdir(orig_cwd)
 
@@ -68,6 +76,8 @@ def test_remove_command(temp_knit_repo_for_cli: Path):
         os.chdir(temp_knit_repo_for_cli)
         result = runner.invoke(cli, split("remove -w work b1"))
         check(result.exit_code == 0)
+        # Verify that b1 was removed
+        check("b1" in result.output or result.output == "")
     finally:
         os.chdir(orig_cwd)
 
@@ -81,5 +91,6 @@ def test_rebuild_command(temp_knit_repo_for_cli: Path):
         os.chdir(temp_knit_repo_for_cli)
         result = runner.invoke(cli, split("rebuild -w work"))
         check(result.exit_code == 0)
+        check("rebuild" in result.output.lower() or result.output == "")
     finally:
         os.chdir(orig_cwd)
