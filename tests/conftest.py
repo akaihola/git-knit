@@ -5,8 +5,6 @@ from typing import Generator
 import pytest
 from click.testing import CliRunner
 
-from git_knit.cli import cli
-
 
 @pytest.fixture
 def temp_git_repo(tmp_path: Path) -> Generator[Path, None, None]:
