@@ -19,15 +19,15 @@ from git_knit.errors import (
 def test_init_knit_creates_config(fake_process):
     """Test initializing a knit configuration"""
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.base_branch", "main"],
+        ["git", "config", "knit.main-working.base-branch", "main"],
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.feature_branches", "feature/a"],
+        ["git", "config", "knit.main-working.feature-branches", "feature/a"],
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.feature_branches", "feature/b"],
+        ["git", "config", "knit.main-working.feature-branches", "feature/b"],
         stdout=""
     )
 
@@ -41,15 +41,15 @@ def test_add_branch_to_knit(fake_process):
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.feature_branches", "feature/c"],
+        ["git", "config", "knit.main-working.feature-branches", "feature/c"],
         stdout=""
     )
 
@@ -63,11 +63,11 @@ def test_add_duplicate_branch_fails(fake_process):
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\n"
     )
 
@@ -78,19 +78,19 @@ def test_add_duplicate_branch_fails(fake_process):
 def test_remove_branch_from_knit(fake_process):
     """Test removing a branch from knit"""
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\nfeature/b\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--unset", "knit.main-working.feature_branches"],
+        ["git", "config", "--unset", "knit.main-working.feature-branches"],
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.feature_branches", "feature/b"],
+        ["git", "config", "knit.main-working.feature-branches", "feature/b"],
         stdout=""
     )
 
@@ -100,11 +100,11 @@ def test_remove_branch_from_knit(fake_process):
 def test_remove_nonexistent_branch_fails(fake_process):
     """Test removing branch not in knit raises error"""
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\n"
     )
 
@@ -115,11 +115,11 @@ def test_remove_nonexistent_branch_fails(fake_process):
 def test_get_config_returns_knit_config(fake_process):
     """Test retrieving knit configuration"""
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\nfeature/b\n"
     )
 
@@ -133,7 +133,7 @@ def test_get_config_returns_knit_config(fake_process):
 def test_get_config_not_found_returns_none(fake_process):
     """Test retrieving non-existent configuration returns None"""
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.nonexistent.base_branch"],
+        ["git", "config", "--get", "knit.nonexistent.base-branch"],
         returncode=1,
         stdout=""
     )
@@ -146,7 +146,7 @@ def test_list_working_branches(fake_process):
     """Test listing all working branches"""
     fake_process.register_subprocess(
         ["git", "config", "--get-regexp", "^knit\\."],
-        stdout="knit.main-working.base_branch main\nknit.dev-working.base_branch dev\n"
+        stdout="knit.main-working.base-branch main\nknit.dev-working.base-branch dev\n"
     )
 
     branches = list_working_branches()
@@ -156,11 +156,11 @@ def test_list_working_branches(fake_process):
 def test_resolve_working_branch_explicit(fake_process):
     """Test resolving working branch when explicitly provided"""
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.my-branch.base_branch"],
+        ["git", "config", "--get", "knit.my-branch.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.my-branch.feature_branches"],
+        ["git", "config", "--get", "knit.my-branch.feature-branches"],
         returncode=1,
         stdout=""
     )
@@ -176,11 +176,11 @@ def test_resolve_working_branch_current(fake_process):
         stdout="my-working\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.my-working.base_branch"],
+        ["git", "config", "--get", "knit.my-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.my-working.feature_branches"],
+        ["git", "config", "--get", "knit.my-working.feature-branches"],
         returncode=1,
         stdout=""
     )
@@ -196,7 +196,7 @@ def test_resolve_working_branch_not_set_fails(fake_process):
         stdout="random-branch\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.random-branch.base_branch"],
+        ["git", "config", "--get", "knit.random-branch.base-branch"],
         returncode=1,
         stdout=""
     )
@@ -208,20 +208,20 @@ def test_resolve_working_branch_not_set_fails(fake_process):
 def test_delete_config(fake_process):
     """Test deleting a knit configuration"""
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.my-working.base_branch"],
+        ["git", "config", "--get", "knit.my-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.my-working.feature_branches"],
+        ["git", "config", "--get", "knit.my-working.feature-branches"],
         returncode=1,
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "--unset", "knit.my-working.base_branch"],
+        ["git", "config", "--unset", "knit.my-working.base-branch"],
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "--unset", "knit.my-working.feature_branches"],
+        ["git", "config", "--unset", "knit.my-working.feature-branches"],
         stdout=""
     )
 

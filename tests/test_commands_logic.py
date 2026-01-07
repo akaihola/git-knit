@@ -15,15 +15,15 @@ def test_cmd_init_creates_knit(fake_process):
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.base_branch", "main"],
+        ["git", "config", "knit.main-working.base-branch", "main"],
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.feature_branches", "feature/a"],
+        ["git", "config", "knit.main-working.feature-branches", "feature/a"],
         stdout=""
     )
     fake_process.register_subprocess(
-        ["git", "config", "knit.main-working.feature_branches", "feature/b"],
+        ["git", "config", "knit.main-working.feature-branches", "feature/b"],
         stdout=""
     )
     fake_process.register_subprocess(
@@ -49,19 +49,19 @@ def test_cmd_status(fake_process, capsys):
         stdout="main-working\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\nfeature/b\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\nfeature/b\n"
     )
 
@@ -95,7 +95,7 @@ def test_cmd_move_commit(fake_process):
     )
     # get_config for rebuild
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.feature/target.base_branch"],
+        ["git", "config", "--get", "knit.feature/target.base-branch"],
         returncode=1,
         stdout=""
     )
@@ -110,19 +110,19 @@ def test_cmd_rebuild(fake_process):
         stdout="main-working\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         stdout="feature/a\n"
     )
     fake_process.register_subprocess(
@@ -181,11 +181,11 @@ def test_cmd_restack(fake_process):
         stdout="main-working\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.base_branch"],
+        ["git", "config", "--get", "knit.main-working.base-branch"],
         stdout="main\n"
     )
     fake_process.register_subprocess(
-        ["git", "config", "--get", "knit.main-working.feature_branches"],
+        ["git", "config", "--get", "knit.main-working.feature-branches"],
         returncode=1,
         stdout=""
     )

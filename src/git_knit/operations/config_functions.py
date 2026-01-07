@@ -96,9 +96,9 @@ def list_working_branches() -> list[str]:
     keys = list_config_keys("knit")
     working_branches = set()
     for key in keys:
-        # Keys are like "main-working.base_branch"
-        if ".base_branch" in key:
-            working_branch = key.replace(".base_branch", "")
+        # Keys are like "main-working.base-branch"
+        if ".base-branch" in key:
+            working_branch = key.replace(".base-branch", "")
             working_branches.add(working_branch)
     return sorted(list(working_branches))
 

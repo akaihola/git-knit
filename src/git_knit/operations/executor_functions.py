@@ -5,7 +5,6 @@ from typing import Optional
 
 from git_knit.errors import (
     GitConflictError,
-    BranchNotFoundError,
     CommitNotFoundError,
     AmbiguousCommitError,
 )
@@ -211,8 +210,10 @@ def is_clean_working_tree() -> bool:
 
 def get_config_value(section: str, key: str) -> Optional[str]:
     """Get a git config value."""
+    # Convert underscores to dashes in keys (git config doesn't allow underscores)
+    config_key = f"{section}.{key.replace('_', '-')}"
     result = run_git_command(
-        ["config", "--get", f"{section}.{key}"],
+        ["config", "--get", config_key],
         check=False,
     )
     if result.returncode == 0:
@@ -222,16 +223,20 @@ def get_config_value(section: str, key: str) -> Optional[str]:
 
 def set_config_value(section: str, key: str, value: str) -> None:
     """Set a git config value."""
+    # Convert underscores to dashes in keys (git config doesn't allow underscores)
+    config_key = f"{section}.{key.replace('_', '-')}"
     run_git_command(
-        ["config", f"{section}.{key}", value],
+        ["config", config_key, value],
         check=True,
     )
 
 
 def unset_config_value(section: str, key: str) -> None:
     """Unset a git config value."""
+    # Convert underscores to dashes in keys (git config doesn't allow underscores)
+    config_key = f"{section}.{key.replace('_', '-')}"
     run_git_command(
-        ["config", "--unset", f"{section}.{key}"],
+        ["config", "--unset", config_key],
         check=True,
     )
 
