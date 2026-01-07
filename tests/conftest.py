@@ -6,7 +6,6 @@ import pytest
 from click.testing import CliRunner
 
 from git_knit.cli import cli
-from git_knit.operations import GitExecutor, KnitConfigManager
 
 
 @pytest.fixture
@@ -75,9 +74,19 @@ def temp_knit_repo(temp_git_repo):
         subprocess.run(["git", "commit", "-m", f"Add {branch}"], cwd=temp_git_repo, check=True)
         subprocess.run(["git", "checkout", "main"], cwd=temp_git_repo, check=True)
 
-    executor = GitExecutor(cwd=temp_git_repo)
-    manager = KnitConfigManager(executor)
-    manager.init_knit("work", "main", ["b1", "b2"])
-    executor.create_branch("work", "main")
-    executor.checkout("work")
+    # Use git commands directly instead of old classes
+    from git_knit.operations.config_functions import init_knit
+    from git_knit.operations.executor_functions import create_branch, checkout
+
+    # Change to repo directory for git commands
+    import os
+    orig_cwd = os.getcwd()
+    try:
+        os.chdir(temp_git_repo)
+        init_knit("work", "main", ["b1", "b2"])
+        create_branch("work", "main")
+        checkout("work")
+    finally:
+        os.chdir(orig_cwd)
+
     return temp_git_repo
