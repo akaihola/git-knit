@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:executing-plans)",
+      "Bash(python -m pytest:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Skill(superpowers:writing-plans)",
+      "Bash(python -m ruff check:*)",
+      "Bash(python -m mypy:*)",
+      "Bash(pytest:*)",
+      "Bash(uv sync:*)",
+      "Bash(ruff check:*)",
+      "Bash(ty check:*)",
+      "Bash(git -C /home/akaihola/prg/git-knit/.worktrees/refactor-functional diff HEAD tests/conftest.py)"
+    ]
+  }
+}

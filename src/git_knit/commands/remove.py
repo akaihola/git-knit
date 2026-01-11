@@ -1,6 +1,7 @@
 import click
 
-from ..operations import GitExecutor, KnitConfigManager
+from ..commands_logic import cmd_remove, cmd_status
+from ..errors import KnitError
 from ._shared import resolve_working_branch_param
 
 
@@ -14,12 +15,11 @@ def remove(branch: str, working_branch: str) -> None:
 
     BRANCH: Feature branch to remove
     """
-    executor = GitExecutor()
-    config_manager = KnitConfigManager(executor)
-
-    config_manager.remove_branch(working_branch, branch)
-
-    click.echo(f"Removed {branch} from {working_branch}")
+    try:
+        cmd_remove(working_branch, branch)
+        click.echo(f"Removed {branch} from {working_branch}")
+    except KnitError as e:
+        raise click.ClickException(str(e))
 
 
 @click.command()
@@ -28,16 +28,7 @@ def remove(branch: str, working_branch: str) -> None:
 )
 def status(working_branch: str) -> None:
     """Show knit configuration."""
-    executor = GitExecutor()
-    config_manager = KnitConfigManager(executor)
-
-    config = config_manager.get_config(working_branch)
-
-    branches_str = (
-        ", ".join(config.feature_branches) if config.feature_branches else "(none)"
-    )
-    click.echo(
-        f"Working branch: {working_branch}\n"
-        f"Base branch: {config.base_branch}\n"
-        f"Feature branches: {branches_str}"
-    )
+    try:
+        cmd_status(working_branch)
+    except KnitError as e:
+        raise click.ClickException(str(e))

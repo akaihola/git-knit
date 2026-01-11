@@ -1,6 +1,75 @@
-from git_knit.operations.config import KnitConfig, KnitConfigManager
-from git_knit.operations.config import *  # noqa: F403, F401
+"""Pure functional operations for git-knit."""
 
-from .executor import GitExecutor
-from .spice_detector import GitSpiceDetector
-from .rebuilder import KnitRebuilder
+from git_knit.operations.config import KnitConfig
+from git_knit.operations.config_functions import (
+    init_knit,
+    add_branch,
+    remove_branch,
+    get_config,
+    list_working_branches,
+    resolve_working_branch,
+    delete_config,
+)
+from git_knit.operations.executor_functions import (
+    run_git_command,
+    get_current_branch,
+    branch_exists,
+    create_branch,
+    checkout,
+    delete_branch,
+    merge_branch,
+    cherry_pick,
+    stash_push,
+    stash_pop,
+    get_commits_between,
+    get_merge_base,
+    is_ancestor,
+    is_merge_commit,
+    find_commit,
+    get_local_working_branch_commits,
+    is_clean_working_tree,
+    get_config_value,
+    set_config_value,
+    unset_config_value,
+    list_config_keys,
+)
+from git_knit.operations.operations_functions import (
+    rebuild_working_branch,
+    detect_and_restack,
+    get_local_commits,
+)
+
+__all__ = [
+    "KnitConfig",
+    "init_knit",
+    "add_branch",
+    "remove_branch",
+    "get_config",
+    "list_working_branches",
+    "resolve_working_branch",
+    "delete_config",
+    "run_git_command",
+    "get_current_branch",
+    "branch_exists",
+    "create_branch",
+    "checkout",
+    "delete_branch",
+    "merge_branch",
+    "cherry_pick",
+    "stash_push",
+    "stash_pop",
+    "get_commits_between",
+    "get_merge_base",
+    "is_ancestor",
+    "is_merge_commit",
+    "find_commit",
+    "get_local_working_branch_commits",
+    "is_clean_working_tree",
+    "get_config_value",
+    "set_config_value",
+    "unset_config_value",
+    "list_config_keys",
+    "rebuild_working_branch",
+    "detect_and_restack",
+    "get_local_commits",
+]
