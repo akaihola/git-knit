@@ -12,7 +12,8 @@
       "Bash(uv sync:*)",
       "Bash(ruff check:*)",
       "Bash(ty check:*)",
-      "Bash(git -C /home/akaihola/prg/git-knit/.worktrees/refactor-functional diff HEAD tests/conftest.py)"
+      "Bash(basedpyright:*)",
+      "Bash(just lint-concise:*)"
     ]
   }
 }
