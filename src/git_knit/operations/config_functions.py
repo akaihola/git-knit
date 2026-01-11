@@ -100,7 +100,7 @@ def list_working_branches() -> list[str]:
         if ".base-branch" in key:
             working_branch = key.replace(".base-branch", "")
             working_branches.add(working_branch)
-    return sorted(list(working_branches))
+    return sorted(working_branches)
 
 
 def resolve_working_branch(working_branch: str | None) -> str:
