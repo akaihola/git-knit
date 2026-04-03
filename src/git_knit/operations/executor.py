@@ -186,11 +186,11 @@ class GitExecutor:
         """Stash both staged and unstaged changes. Returns True if stash created."""
         if self.is_clean_working_tree():
             return False
-        args = ["stash", "push", "--include-untracked"]
+        args = ["stash", "push"]
         if message:
             args += ["-m", message]
         result = self.run(args, capture=True, check=False)
-        if result is None:
+        if result is None:  # pragma: no cover – run() always returns CompletedProcess
             return False
         out = (result.stdout or "").lower()
         if "no local changes" in out:
