@@ -890,20 +890,26 @@ class TestKnitRebuilderExtra:
         assert executor.get_current_branch() == "work"
 
     def test_stash_operations(self, temp_git_repo):
-        """Test stash push and pop operations."""
+        """Test stash push and pop operations using tracked file modifications.
+
+        stash_push no longer uses --include-untracked, so only tracked changes
+        are stashed; untracked files are left untouched.
+        """
         executor = GitExecutor(cwd=temp_git_repo)
 
-        (temp_git_repo / "file.txt").write_text("content")
+        # Modify a tracked file to make the working tree dirty
+        (temp_git_repo / "README.md").write_text("first modification")
         assert not executor.is_clean_working_tree()
 
         executor.stash_push("test stash")
-        assert executor.is_clean_working_tree()
+        assert executor.is_clean_working_tree()  # tracked change was stashed
 
-        (temp_git_repo / "other.txt").write_text("other")
+        # Second tracked change → second stash
+        (temp_git_repo / "README.md").write_text("second modification")
         executor.stash_push("second stash")
 
         executor.stash_pop()
-        assert (temp_git_repo / "other.txt").read_text() == "other"
+        assert (temp_git_repo / "README.md").read_text() == "second modification"
 
     def test_get_commits_between(self, temp_git_repo):
         """Test getting commits between two refs."""
@@ -979,3 +985,242 @@ class TestKnitRebuilderExtra:
             ["log", "-n", "1", local_commits[0], "--format=%s"], capture=True
         )
         assert "Local commit" in log_result.stdout
+
+    def test_rebuild_preserves_untracked_files(self, temp_git_repo_with_branches):
+        """Untracked files (e.g. .livefork.toml) survive a successful rebuild unchanged.
+
+        With --include-untracked removed from stash_push, these files are never
+        stashed and therefore never at risk of being lost.
+        """
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        # Simulate .livefork.toml: untracked, not in any .gitignore
+        livefork_toml = repo / ".livefork.toml"
+        livefork_toml.write_text('[knit]\nbranch = "work"\n')
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        assert livefork_toml.read_text() == '[knit]\nbranch = "work"\n'
+        # No stash should have been created (untracked files are not stashed)
+        stash_list = executor.run(["stash", "list"], capture=True).stdout.strip()
+        assert stash_list == ""
+
+    def test_rebuild_stash_popped_on_missing_branch(self, temp_git_repo):
+        """Stash is popped via finally when rebuild aborts early (e.g. missing feature branch).
+
+        Previously the stash was only popped on the success path, so any
+        uncommitted tracked changes were stranded in the stash on non-conflict
+        failures.  A cherry-pick conflict is a different case: git itself
+        refuses to apply a stash while the index has unresolved entries, so
+        the stash remains available for the user to pop after they resolve the
+        conflict manually.
+        """
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        # Knit configured with a branch that does not exist
+        manager.init_knit("work", "main", ["nonexistent-branch"])
+
+        # Dirty working tree → stash will be created
+        (temp_git_repo / "README.md").write_text("WIP\n")
+
+        rebuilder = KnitRebuilder(executor)
+        with pytest.raises(BranchNotFoundError):
+            rebuilder.rebuild(manager.get_config("work"))
+
+        # No conflict state: the finally block must have popped the stash
+        stash_list = executor.run(["stash", "list"], capture=True).stdout.strip()
+        assert stash_list == "", "stash was not popped after BranchNotFoundError"
+        # And the WIP change is back in the working tree
+        assert (temp_git_repo / "README.md").read_text() == "WIP\n"
+
+    def test_rebuild_pops_stash_on_success_with_tracked_wip(
+        self, temp_git_repo_with_branches
+    ):
+        """Stash is popped on the success path when tracked WIP changes exist.
+
+        Covers rebuilder lines 97-98 (stash_pop + stash_created = False in the
+        success branch).  Previously covered by an --include-untracked test that
+        stashed an *untracked* file; now that untracked files are not stashed we
+        need an explicitly tracked modification.
+        """
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("b1")
+
+        # Dirty the working tree with a *tracked* file change
+        (repo / "README.md").write_text("tracked WIP\n")
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        # Rebuild succeeded and stash was popped: WIP change is back
+        assert (repo / "README.md").read_text() == "tracked WIP\n"
+        stash_list = executor.run(["stash", "list"], capture=True).stdout.strip()
+        assert stash_list == ""
+
+    def test_rebuild_stash_remains_on_cherry_pick_conflict_with_tracked_wip(
+        self, temp_git_repo
+    ):
+        """When a cherry-pick conflict aborts rebuild while there is tracked WIP,
+        the stash_pop in the finally block fails (git refuses to pop during a
+        conflict) but the original GitConflictError is still propagated.
+
+        Covers rebuilder lines 108-109 (except Exception: pass inside finally).
+        The WIP change is preserved in the stash for the user to recover after
+        resolving the conflict manually with `git stash pop`.
+        """
+        executor = GitExecutor(cwd=temp_git_repo)
+        manager = KnitConfigManager(executor)
+
+        executor.create_branch("feat", "main")
+        executor.checkout("feat")
+        (temp_git_repo / "conflict.txt").write_text("base\n")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "feat: add conflict.txt"])
+        executor.checkout("main")
+
+        manager.init_knit("work", "main", ["feat"])
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        executor.merge_branch("feat")
+        (temp_git_repo / "conflict.txt").write_text("local\n")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "local: modify conflict.txt"])
+
+        executor.checkout("feat")
+        (temp_git_repo / "conflict.txt").write_text("feat-updated\n")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "feat: update conflict.txt"])
+        executor.checkout("work")
+
+        # Tracked WIP change – causes a stash to be created
+        (temp_git_repo / "README.md").write_text("WIP\n")
+
+        rebuilder = KnitRebuilder(executor)
+        # GitConflictError must propagate despite stash_pop failing in finally
+        with pytest.raises(GitConflictError):
+            rebuilder.rebuild(manager.get_config("work"))
+
+        # Stash was NOT popped (git refuses during cherry-pick conflict) –
+        # the WIP change is safe in the stash for manual recovery
+        stash_list = executor.run(["stash", "list"], capture=True).stdout.strip()
+        assert stash_list != "", (
+            "stash should be retained when pop fails during conflict"
+        )
+
+    def test_rebuild_working_branch_created_from_scratch(
+        self, temp_git_repo_with_branches
+    ):
+        """Rebuild creates working branch on first run (no pre-existing branch).
+
+        When the working branch does not exist yet, backup_branch stays None and
+        the cleanup 'if backup_branch and ...' condition is False – covering the
+        93->96 branch miss.
+        """
+        repo = temp_git_repo_with_branches["repo"]
+        executor = GitExecutor(cwd=repo)
+        manager = KnitConfigManager(executor)
+        manager.init_knit("work", "main", ["b1"])
+        # NOTE: "work" branch is intentionally NOT created before rebuild
+
+        rebuilder = KnitRebuilder(executor)
+        rebuilder.rebuild(manager.get_config("work"))
+
+        assert executor.branch_exists("work")
+        assert executor.get_current_branch() == "work"
+
+    def test_stash_push_on_already_clean_tree(self, temp_git_repo):
+        """stash_push returns False immediately when the working tree is already clean.
+
+        Covers executor line 188 (the early-return inside stash_push when the
+        outer caller somehow reaches it with a clean tree).
+        """
+        executor = GitExecutor(cwd=temp_git_repo)
+        assert executor.is_clean_working_tree()
+        result = executor.stash_push()
+        assert result is False
+
+    def test_get_commits_between_empty_range(self, temp_git_repo):
+        """get_commits_between returns [] when tip equals base (no commits between).
+
+        Covers executor line 215 (the early return for empty output).
+        """
+        executor = GitExecutor(cwd=temp_git_repo)
+        commits = executor.get_commits_between("main", "main")
+        assert commits == []
+
+    def test_get_local_working_branch_commits_no_feature_branches(self, temp_git_repo):
+        """get_local_working_branch_commits with empty feature list omits --not flag.
+
+        Covers executor branch 234->236 (the False branch of 'if feature_branches:').
+        """
+        executor = GitExecutor(cwd=temp_git_repo)
+        executor.create_branch("work", "main")
+        executor.checkout("work")
+        (temp_git_repo / "local.txt").write_text("local")
+        executor.run(["add", "."])
+        executor.run(["commit", "-m", "local commit"])
+
+        commits = executor.get_local_working_branch_commits("work", "main", ())
+        assert len(commits) == 1
+
+    def test_get_merge_base_returns_none_on_failure(self, temp_git_repo):
+        """get_merge_base returns None when the command fails (e.g. invalid refs).
+
+        Covers executor line 244.
+        """
+        executor = GitExecutor(cwd=temp_git_repo)
+        result = executor.get_merge_base("nonexistent-a", "nonexistent-b")
+        assert result is None
+
+    def test_stash_pop_fallback_without_index(self, temp_git_repo, monkeypatch):
+        """stash_pop falls back to plain 'git stash pop' when '--index' fails.
+
+        In real git, pop --index can fail when the stash's staged state would
+        conflict with the current index.  The fallback plain pop is then tried.
+        This test uses monkeypatch to simulate that exact sequence without
+        needing to reproduce the tricky git state.
+
+        Covers executor branch 200->exit (False branch of
+        'if result2 and result2.returncode != 0:' when plain pop succeeds).
+        """
+        import subprocess as sp
+
+        executor = GitExecutor(cwd=temp_git_repo)
+
+        # Create a real stash so the call sequence is realistic
+        (temp_git_repo / "README.md").write_text("modified")
+        executor.stash_push()
+
+        calls: list[list[str]] = []
+        original_run = executor.run
+
+        def fake_run(args, **kwargs):  # type: ignore[misc]
+            if "stash" in args and "pop" in args:
+                calls.append(list(args))
+                if "--index" in args:
+                    return sp.CompletedProcess(args, 1, "", "index conflict")
+                # Plain pop succeeds
+                return sp.CompletedProcess(args, 0, "Dropped stash@{0}", "")
+            return original_run(args, **kwargs)
+
+        monkeypatch.setattr(executor, "run", fake_run)
+        executor.stash_pop()  # must not raise
+
+        assert len(calls) == 2, "both pop attempts should have been made"
+        assert "--index" in calls[0]
+        assert "--index" not in calls[1]

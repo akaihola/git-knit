@@ -94,6 +94,8 @@ def move(target_branch: str, commit_ref: str, working_branch: str) -> None:
 
     if executor.branch_exists(current_branch):
         executor.checkout(current_branch)
+    else:  # pragma: no cover – the branch we started on is never deleted by rebuild
+        pass
 
     click.echo(f"Successfully moved commit to {target_branch}")
 

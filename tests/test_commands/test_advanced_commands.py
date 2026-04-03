@@ -122,6 +122,29 @@ class TestMoveCommand:
         )
         assert result.exit_code == 1
 
+    def test_move_commit_not_found_by_hash_or_message(
+        self, temp_knit_repo, runner, monkeypatch
+    ):
+        """move reports an error when COMMIT_REF matches neither hash nor message.
+
+        Covers commit.py lines 75-76 (the inner except block when both
+        find_commit(message=False) and find_commit(message=True) raise).
+        """
+        monkeypatch.chdir(temp_knit_repo)
+        # Use a ref that is definitely not a hash and not any commit message
+        result = runner.invoke(
+            cli,
+            [
+                "move",
+                "b1",
+                "this-commit-absolutely-does-not-exist-xyz-123",
+                "--working-branch",
+                "work",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
 
 class TestRebuildCommand:
     """Test git knit rebuild command."""
@@ -180,3 +203,74 @@ class TestRestackCommand:
         result = runner.invoke(cli, ["restack", "--working-branch", "work"])
         assert result.exit_code == 1
         assert "git-spice not available" in result.output
+
+    def test_move_commit_lookup_falls_back_to_message(
+        self, temp_knit_repo, runner, monkeypatch
+    ):
+        """move falls back to message-based lookup when hash lookup fails.
+
+        Covers commit.py lines 75-76 (the except+inner try when find_commit by
+        hash raises, and message=True lookup succeeds).
+        """
+        monkeypatch.chdir(temp_knit_repo)
+        # Commit something on b1
+        (temp_knit_repo / "msg_lookup.txt").write_text("content")
+        import subprocess as sp
+
+        sp.run(["git", "checkout", "b1"], cwd=temp_knit_repo, check=True)
+        sp.run(["git", "add", "msg_lookup.txt"], cwd=temp_knit_repo, check=True)
+        sp.run(
+            ["git", "commit", "-m", "unique-message-xyz"],
+            cwd=temp_knit_repo,
+            check=True,
+        )
+        sp.run(["git", "checkout", "work"], cwd=temp_knit_repo, check=True)
+        sp.run(["git", "merge", "b1"], cwd=temp_knit_repo, check=True)
+
+        # Pass the commit *message* (not hash) as COMMIT_REF so hash lookup fails
+        result = runner.invoke(
+            cli,
+            ["move", "b2", "unique-message-xyz", "--working-branch", "work"],
+        )
+        assert result.exit_code == 0
+
+    def test_move_restack_when_git_spice_available(
+        self, temp_knit_repo, runner, monkeypatch
+    ):
+        """move calls restack when git-spice is available, printing the echo line.
+
+        Covers commit.py line 88 (the True branch of
+        'if detector.restack_if_available():').
+        """
+        import subprocess as sp
+
+        monkeypatch.chdir(temp_knit_repo)
+        (temp_knit_repo / "spice.txt").write_text("content")
+        sp.run(["git", "checkout", "b1"], cwd=temp_knit_repo, check=True)
+        sp.run(["git", "add", "spice.txt"], cwd=temp_knit_repo, check=True)
+        sp.run(["git", "commit", "-m", "spice commit"], cwd=temp_knit_repo, check=True)
+        sp.run(["git", "checkout", "work"], cwd=temp_knit_repo, check=True)
+        sp.run(["git", "merge", "b1"], cwd=temp_knit_repo, check=True)
+
+        commit_hash = sp.run(
+            ["git", "rev-parse", "--short", "b1"],
+            cwd=temp_knit_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+        # Patch GitSpiceDetector.restack_if_available to return True
+        from unittest.mock import patch as mock_patch
+
+        with mock_patch(
+            "git_knit.operations.spice_detector.GitSpiceDetector.restack_if_available",
+            return_value=True,
+        ):
+            result = runner.invoke(
+                cli,
+                ["move", "b2", commit_hash, "--working-branch", "work"],
+            )
+
+        assert result.exit_code == 0
+        assert "restacked" in result.output.lower()

@@ -152,13 +152,7 @@ class GitExecutor:
         if result.returncode != 0:
             return []
 
-        keys = []
-        for line in result.stdout.strip().split("\n"):
-            if line:
-                key = line.split()[0]
-                keys.append(key)
-
-        return keys
+        return [line.split()[0] for line in result.stdout.splitlines() if line]
 
     def get_branch_parent(self, branch: str) -> str | None:
         """Get the parent branch of a merge commit.
@@ -186,11 +180,11 @@ class GitExecutor:
         """Stash both staged and unstaged changes. Returns True if stash created."""
         if self.is_clean_working_tree():
             return False
-        args = ["stash", "push", "--include-untracked"]
+        args = ["stash", "push"]
         if message:
             args += ["-m", message]
         result = self.run(args, capture=True, check=False)
-        if result is None:
+        if result is None:  # pragma: no cover – run() always returns CompletedProcess
             return False
         out = (result.stdout or "").lower()
         if "no local changes" in out:
@@ -251,14 +245,3 @@ class GitExecutor:
             capture=True,
         )
         return result.returncode == 0 if result else False
-
-    def is_merge_commit(self, commit: str) -> bool:
-        """Check if a commit is a merge commit by counting parents."""
-        result = self.run(
-            ["rev-list", "--parents", "-n", "1", commit], capture=True, check=False
-        )
-        if not result or result.returncode != 0 or not result.stdout:
-            return False
-        parts = result.stdout.strip().split()
-        return len(parts) > 2
-

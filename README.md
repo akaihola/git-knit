@@ -1,5 +1,9 @@
 # git-knit
 
+[![Built with Claude Code](https://img.shields.io/badge/Built_with-Claude_Code-6f42c1?logo=anthropic&logoColor=white)](https://claude.ai/code)
+
+> This project is developed by an AI coding agent ([Claude Code](https://claude.ai/code)), with human oversight and direction.
+
 > Work on multiple Open Source contributions simultaneously in a unified view, then route each change to its own PR-ready branch.
 
 ---

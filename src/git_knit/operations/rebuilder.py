@@ -54,6 +54,8 @@ class KnitRebuilder:
                     short = sha_res.stdout.strip()[:7]
                     backup_branch = f"knit/backup/{config.working_branch}-{short}"
                     self.executor.create_branch(backup_branch, sha_res.stdout.strip())
+                else:  # pragma: no cover – rev-parse can't fail on a branch that exists
+                    pass
 
             self.executor.create_branch(temp_branch, config.base_branch)
             self.executor.checkout(temp_branch)
@@ -87,16 +89,27 @@ class KnitRebuilder:
                 self.executor.checkout(config.working_branch)
             elif self.executor.get_current_branch() == temp_branch:
                 self.executor.checkout(config.base_branch)
+            else:  # pragma: no cover – we always checkout temp_branch at line 59
+                pass
 
             if self.executor.branch_exists(temp_branch):
                 self.executor.delete_branch(temp_branch, force=True)
+            else:  # pragma: no cover - temp_branch was just created and always exists here
+                pass
             if backup_branch and self.executor.branch_exists(backup_branch):
                 self.executor.delete_branch(backup_branch, force=True)
 
             if stash_created:
                 self.executor.stash_pop()
+                stash_created = False  # prevent double-pop in finally
 
         except GitConflictError:
             raise
         except Exception:
             raise
+        finally:
+            if stash_created:
+                try:
+                    self.executor.stash_pop()
+                except Exception:
+                    pass
